@@ -4,5 +4,5 @@ import app from './app.js'
 const port = Number(process.env.PORT) || 3001
 
 app.listen(port, () => {
-  console.log(`PahadiTokri API listening on http://localhost:${port}`)
+  console.log(`PahadiKiltu API listening on http://localhost:${port}`)
 })

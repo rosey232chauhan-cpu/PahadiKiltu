@@ -1,4 +1,4 @@
-# PahadiTokri
+# PahadiKiltu
 
 HTML, CSS, and JavaScript storefront for Himalayan produce with a Node.js API and Razorpay payments (UPI, cards, net banking, wallets).
 

@@ -19,7 +19,7 @@ app.use(cors({ origin: allowedOrigins.includes('*') ? true : allowedOrigins }))
 app.use(express.json({ limit: '1mb' }))
 
 app.get('/api/health', (_req, res) => {
-  res.json({ status: 'ok', service: 'pahaditokri-api' })
+  res.json({ status: 'ok', service: 'pahadikiltu-api' })
 })
 app.use('/api/auth', authRouter)
 app.use('/api/admin', adminRouter)

@@ -1,5 +1,5 @@
 {
-  "name": "pahaditokri-api",
+  "name": "pahadikiltu-api",
   "private": true,
   "type": "module",
   "scripts": {
@@ -10,7 +10,7 @@
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
-    "pahaditokri": "file:..",
+    "pahadikiltu": "file:..",
     "razorpay": "^2.9.6",
     "uuid": "^11.0.5"
   }
