@@ -82,12 +82,17 @@ const state = {
 const API_BASE_URL = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '')
 const root = document.querySelector('#root')
 const whatsappNumber = '917018777497'
-let razorpayScriptPromise
 let mediaObserver
 const escapeHtml = (value) => String(value).replace(/[&<>'"]/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[character]))
 const parsePrice = (price) => Number(price.replace(/[^0-9.]/g, '')) || 0
 const itemWithCartData = (item, categoryName, quantity = 1) => ({ ...item, id: item.sku, categoryName, quantity, priceNumber: parsePrice(item.price) })
 const storefrontImage = (target, fallback) => state.storefrontImages[target] || fallback
+const cartTotals = () => {
+  const subtotal = state.cartItems.reduce((total, item) => total + item.priceNumber * item.quantity, 0)
+  const shipping = subtotal > 0 ? 49 : 0
+  const gst = Math.round(subtotal * 0.05 * 100) / 100
+  return { subtotal, shipping, gst, total: Math.round((subtotal + shipping + gst) * 100) / 100 }
+}
 let allProducts = productCategories.flatMap((category) => category.items.map((item) => ({ ...item, categorySlug: category.slug, categoryName: category.name })))
 const saveState = () => {
   localStorage.setItem('pahaditokri_cart', JSON.stringify(state.cartItems))
@@ -155,23 +160,6 @@ async function loadCatalogImages() {
 function productCard(item) {
   const unavailable = item.isAvailable === false
   return `<article class="catalog-product-card" data-product-card data-name="${escapeHtml(item.name.toLowerCase())}" data-category="${item.categorySlug}" data-price="${parsePrice(item.price)}"><div class="catalog-product-image"><img src="${escapeHtml(item.image)}" alt="${escapeHtml(item.name)}" loading="lazy"><span class="availability-badge">${unavailable ? 'Currently unavailable' : 'Check availability'}</span></div><div class="catalog-product-content"><p class="catalog-product-category">${escapeHtml(item.categoryName)}</p><h3>${escapeHtml(item.name)}</h3><p class="catalog-product-description">${escapeHtml(item.info)}</p><p class="catalog-product-price">${escapeHtml(item.price)}</p><label class="quantity-picker">Quantity<select aria-label="Quantity of ${escapeHtml(item.name)} in kilograms" data-product-quantity><option value="1">1 kg</option><option value="2">2 kg</option><option value="5">5 kg</option></select></label><button class="btn primary catalog-add-button" type="button" data-add="${escapeHtml(item.sku)}" ${unavailable ? 'disabled' : ''}>${unavailable ? 'Unavailable' : 'Add to Cart'}</button></div></article>`
-}
-
-function loadRazorpayCheckout() {
-  if (window.Razorpay) return Promise.resolve()
-  if (!razorpayScriptPromise) {
-    razorpayScriptPromise = new Promise((resolve, reject) => {
-      const script = document.createElement('script')
-      script.src = 'https://checkout.razorpay.com/v1/checkout.js'
-      script.onload = resolve
-      script.onerror = () => {
-        razorpayScriptPromise = null
-        reject(new Error('Unable to load secure checkout. Please try again.'))
-      }
-      document.head.append(script)
-    })
-  }
-  return razorpayScriptPromise
 }
 
 function showToast(message, type = 'success') {
@@ -290,13 +278,10 @@ function categoryPage(slug) {
 }
 
 function cartPage() {
-  const subtotal = state.cartItems.reduce((total, item) => total + item.priceNumber * item.quantity, 0)
-  const shipping = subtotal > 0 ? 49 : 0
-  const gst = Math.round(subtotal * 0.05 * 100) / 100
-  const total = Math.round((subtotal + shipping + gst) * 100) / 100
+  const { subtotal, shipping, gst, total } = cartTotals()
   const items = state.cartItems.length ? `<div class="cart-item-list">${state.cartItems.map((item) => `<article class="cart-item-card"><img src="${item.image}" alt="${item.name}" loading="lazy"><div class="cart-item-content"><h3>${item.name}</h3><p>${item.categoryName}</p><p class="item-price">${item.price}</p><div class="qty-controls"><button type="button" aria-label="Remove one kilogram of ${escapeHtml(item.name)}" data-decrease="${item.id}">−</button><span>${item.quantity} kg</span><button type="button" aria-label="Add one kilogram of ${escapeHtml(item.name)}" data-increase="${item.id}">+</button></div></div><button type="button" class="remove-btn" data-remove="${item.id}">Remove</button></article>`).join('')}</div><div class="bill-breakdown"><p><span>Subtotal</span><span>₹${subtotal.toFixed(2)}</span></p><p><span>Delivery charge</span><span>₹${shipping.toFixed(2)}</span></p><p><span>GST (5%)</span><span>₹${gst.toFixed(2)}</span></p><p class="cart-total"><span>Total</span><span>₹${total.toFixed(2)}</span></p><p class="delivery-estimate">Delivery timing and service area are confirmed for your address.</p></div>` : '<p>Your cart is empty. Add products to place an order.</p>'
   const history = state.orderHistory.length ? `<div class="order-history-list">${state.orderHistory.map((order) => `<article class="order-history-card"><h3>${order.orderId}</h3><p>${order.createdAt}</p><p>Customer: ${escapeHtml(order.customerName)}</p><p>Items: ${order.itemCount}</p><p>Payment: ${order.paymentMethod.toUpperCase()}</p><p class="item-price">Total: ₹${order.total}</p></article>`).join('')}</div>` : '<p>No previous orders yet.</p>'
-  return `<div class="products-layout"><section class="page-card section-block"><h1>Your Cart</h1>${items}</section><section class="page-card section-block"><h2>Place Order</h2><p class="checkout-delivery-note">Delivery: ₹49 per order, plus 5% GST. We’ll confirm service area and delivery timing for your address.</p><form class="contact-form" id="order-form"><label for="order-name">Full Name</label><input id="order-name" name="name" autocomplete="name" required><label for="order-phone">Phone Number</label><input id="order-phone" name="phone" type="tel" autocomplete="tel" required><label for="order-address">Delivery Address</label><textarea id="order-address" name="address" rows="4" autocomplete="street-address" required></textarea><fieldset class="payment-options"><legend>Payment Method</legend><label><input type="radio" name="paymentMethod" value="cod" checked>Cash on Delivery</label><label><input type="radio" name="paymentMethod" value="online">Online payment (UPI, cards; subject to availability)</label></fieldset><button type="submit" ${state.cartItems.length ? '' : 'disabled'}>Place Order</button></form><p class="form-success" id="order-success" hidden></p></section><section class="page-card section-block"><h2>Order History</h2>${history}</section></div>`
+  return `<div class="products-layout"><section class="page-card section-block"><h1>Your Cart</h1>${items}</section><section class="page-card section-block"><h2>Order on WhatsApp</h2><p class="checkout-delivery-note">Delivery: ₹49 per order, plus 5% GST. We’ll confirm availability, service area, delivery timing, and payment details with you on WhatsApp. No payment is collected on this page.</p><form class="contact-form" id="order-form"><label for="order-name">Full Name</label><input id="order-name" name="name" autocomplete="name" required><label for="order-phone">Phone Number</label><input id="order-phone" name="phone" type="tel" autocomplete="tel" required><label for="order-address">Delivery Address</label><textarea id="order-address" name="address" rows="4" autocomplete="street-address" required></textarea><button type="submit" ${state.cartItems.length ? '' : 'disabled'}>Continue to WhatsApp</button></form><p class="form-success" id="order-success" hidden></p></section><section class="page-card section-block"><h2>Order History</h2>${history}</section></div>`
 }
 
 function contactPage() {
@@ -809,72 +794,33 @@ document.addEventListener('submit', async (event) => {
     event.preventDefault()
     if (!state.cartItems.length) return
     const form = event.target
-    const submitButton = form.querySelector('button[type="submit"]')
     const formData = Object.fromEntries(new FormData(form))
-    submitButton.disabled = true
-    try {
-      const response = await fetch(`${API_BASE_URL}/api/orders`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          customer: { name: formData.name, phone: formData.phone, address: formData.address },
-          paymentMethod: formData.paymentMethod,
-          items: state.cartItems.map((item) => ({ sku: item.sku, quantity: item.quantity })),
-        }),
-      })
+    const { subtotal, shipping, gst, total } = cartTotals()
+    const message = [
+      'Hello PahadiKiltu, I would like to place this order. Please confirm availability, delivery, and payment options.',
+      `Name: ${formData.name}`,
+      `Phone: ${formData.phone}`,
+      `Delivery address: ${formData.address}`,
+      'Items:',
+      ...state.cartItems.map((item) => `- ${item.name} x ${item.quantity} kg — ₹${(item.priceNumber * item.quantity).toFixed(2)}`),
+      `Subtotal: ₹${subtotal.toFixed(2)}`,
+      `Delivery: ₹${shipping.toFixed(2)}`,
+      `GST (5%): ₹${gst.toFixed(2)}`,
+      `Estimated total: ₹${total.toFixed(2)} (please confirm)`,
+      'Please share payment instructions and help with any questions.',
+    ].join('\n')
+    const orderLink = whatsappLink(message)
+    window.open(orderLink, '_blank', 'noopener,noreferrer')
 
-      const result = await response.json().catch(() => ({}))
-      if (!response.ok) throw new Error(result.error || 'Order could not be placed.')
-      if (formData.paymentMethod === 'cod') {
-        completeOrder(result.order, formData.paymentMethod)
-        return
-      }
-      await loadRazorpayCheckout()
-      if (!result.checkout?.keyId || !result.checkout?.orderId) {
-        throw new Error('Online checkout is not configured. Please choose Cash on Delivery.')
-      }
-      const checkout = new window.Razorpay({
-        key: result.checkout.keyId,
-        order_id: result.checkout.orderId,
-        amount: result.checkout.amount,
-        currency: result.checkout.currency,
-        name: 'PahadiKiltu',
-        description: `Order ${result.order.orderId}`,
-        image: new URL(pahadiKiltuLogo, window.location.href).href,
-        prefill: { name: formData.name, contact: formData.phone },
-        theme: { color: '#0e7a4d' },
-        handler: async (payment) => {
-          try {
-            const verificationResponse = await fetch(`${API_BASE_URL}/api/payments/verify`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                orderId: result.order.orderId,
-                razorpayOrderId: payment.razorpay_order_id,
-                razorpayPaymentId: payment.razorpay_payment_id,
-                razorpaySignature: payment.razorpay_signature,
-              }),
-            })
-            const verification = await verificationResponse.json().catch(() => ({}))
-            if (!verificationResponse.ok) throw new Error(verification.error || 'Payment could not be verified.')
-            completeOrder(result.order, formData.paymentMethod)
-          } catch (error) {
-            submitButton.disabled = false
-            showToast(error.message || 'Payment verification failed. Your cart is unchanged.', 'error')
-          }
-        },
-        modal: { ondismiss: () => { submitButton.disabled = false } },
-      })
-      checkout.on('payment.failed', (payment) => {
-        submitButton.disabled = false
-        showToast(payment.error?.description || 'Payment failed. Please try again.', 'error')
-      })
-      checkout.open()
-    } catch (error) {
-      submitButton.disabled = false
-      showToast(error.message || 'Unable to place your order. Please try again.', 'error')
-      return
-    }
+    const success = document.querySelector('#order-success')
+    success.textContent = 'Your order request is ready. Send it in WhatsApp so we can confirm availability, final delivery details, and payment. Your cart has been kept.'
+    const fallbackLink = document.createElement('a')
+    fallbackLink.href = orderLink
+    fallbackLink.target = '_blank'
+    fallbackLink.rel = 'noopener noreferrer'
+    fallbackLink.textContent = 'Open WhatsApp message'
+    success.append(' ', fallbackLink)
+    success.hidden = false
   }
 })
 
@@ -927,39 +873,6 @@ async function removeManagedPhotoStory(id) {
   } catch (error) {
     showToast(error.message || 'Photo story could not be removed.', 'error')
   }
-}
-
-function completeOrder(order, paymentMethod) {
-  const itemCount = cartItemCount()
-  state.orderHistory = [{
-    orderId: order.orderId,
-    customerName: order.customerName,
-    paymentMethod,
-    total: Number(order.total).toFixed(2),
-    itemCount,
-    createdAt: new Date().toLocaleString(),
-  }, ...state.orderHistory].slice(0, 10)
-  state.cartItems = []
-  saveState()
-  render()
-  const success = document.querySelector('#order-success')
-  if (success) {
-    success.textContent = `Your order has been placed successfully. Order ID: ${order.orderId}. Thank you for shopping with PahadiKiltu. To send your order details, `
-    const message = [
-      `Hello PahadiKiltu, I placed order ${order.orderId}.`,
-      `Items: ${order.items.map((item) => `${item.name} x ${item.quantity} kg`).join(', ')}`,
-      `Total: ₹${Number(order.total).toFixed(2)}`,
-      `Payment: ${paymentMethod.toUpperCase()}`,
-    ].join('\n')
-    const confirmationLink = document.createElement('a')
-    confirmationLink.href = whatsappLink(message)
-    confirmationLink.target = '_blank'
-    confirmationLink.rel = 'noopener noreferrer'
-    confirmationLink.textContent = 'confirm on WhatsApp'
-    success.append(confirmationLink)
-    success.hidden = false
-  }
-  showToast(paymentMethod === 'cod' ? 'Order placed successfully' : 'Payment successful')
 }
 
 window.addEventListener('popstate', render)

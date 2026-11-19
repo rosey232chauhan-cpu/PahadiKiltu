@@ -1,6 +1,6 @@
 # PahadiKiltu
 
-HTML, CSS, and JavaScript storefront for Himalayan produce with a Node.js API and Razorpay payments (UPI, cards, net banking, wallets).
+HTML, CSS, and JavaScript storefront for Himalayan produce with a Node.js API. Storefront checkout prepares a WhatsApp order inquiry with the cart and delivery details; payment is arranged directly with the store.
 
 ## Run locally
 
@@ -15,9 +15,9 @@ HTML, CSS, and JavaScript storefront for Himalayan produce with a Node.js API an
 
    Copy `server/.env.example` to `server/.env`. The admin email is `rosey232chauhan@gmail.com`; set a unique `ADMIN_PASSWORD` of at least 12 characters and a random `AUTH_TOKEN_SECRET` of at least 32 characters. Keep `server/.env` private.
 
-3. **Configure payments (optional for COD)**
+3. **Optional: configure Razorpay for API orders**
 
-   Add [Razorpay test API keys](https://dashboard.razorpay.com/app/keys) to `server/.env`.
+   Add [Razorpay test API keys](https://dashboard.razorpay.com/app/keys) to `server/.env` only if you use the API's Razorpay order endpoints. The storefront checkout itself opens WhatsApp and does not collect payment.
 
 4. **Start the API** (terminal 1)
 
@@ -48,12 +48,12 @@ Set these in **Site configuration > Environment variables** before deploying:
 - `AUTH_TOKEN_SECRET`: a random secret of at least 32 characters used to sign account tokens and enable admin authentication.
 - `ADMIN_EMAIL`: use `rosey232chauhan@gmail.com` for the store admin account.
 - `ADMIN_PASSWORD`: a unique password of at least 12 characters; required to enable `/admin`.
-- `RAZORPAY_KEY_ID` and `RAZORPAY_KEY_SECRET`: optional; required to enable online checkout. Cash on Delivery works without them.
+- `RAZORPAY_KEY_ID` and `RAZORPAY_KEY_SECRET`: optional; used by the API's Razorpay order endpoints. The storefront checkout opens WhatsApp instead.
 - `RAZORPAY_WEBHOOK_SECRET` is not used by a webhook endpoint in this version; payment completion is verified through `/api/payments/verify`.
 
 The API uses Netlify Blobs for accounts, orders, contact form messages, admin-managed images, and product overrides when deployed. Netlify provides the Blobs environment to deployed functions; local standalone development continues to use JSON files. `VITE_API_URL` should normally be unset so the frontend calls the same-origin `/api` routes. Do not set `CLIENT_ORIGIN` for the same-origin Netlify deployment.
 
-Use Razorpay test keys first, then configure live keys before accepting real payments. UPI and Google Pay availability depend on the Razorpay account and the customer's device/account.
+If you use the API's Razorpay endpoints, test with Razorpay test keys before configuring live keys. Storefront customers coordinate payment options and order confirmation with the store in WhatsApp.
 
 ## API overview
 
