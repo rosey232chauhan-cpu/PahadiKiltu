@@ -1,6 +1,6 @@
 import './index.css'
 import './App.css'
-import pahadiKiltuLogo from './assets/pahaditokri-logo.png'
+import pahadiKiltuLogo from './assets/pahadikiltu-logo.png'
 
 const productCategories = [
   {

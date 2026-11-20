@@ -2,7 +2,7 @@ export const storefrontImageTargets = [
   {
     target: 'storefront:site-logo',
     label: 'Website logo',
-    image: '/favicon.png',
+    image: '/pahadikiltu-logo.png',
   },
   {
     target: 'storefront:site-background',
