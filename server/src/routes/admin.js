@@ -6,6 +6,7 @@ import { createToken, isTokenSecretConfigured, verifyToken } from '../services/t
 import { addCatalogProduct, getProductCatalog, removeCatalogProduct, updateCatalogProduct } from '../store/catalog.js'
 import { deleteManagedImage, listManagedImages, saveManagedImage } from '../store/images.js'
 import { deletePhotoStory, listPhotoStories, savePhotoStory } from '../store/photo-stories.js'
+import { getSiteContent, saveSiteContent } from '../store/site-content.js'
 
 const router = Router()
 const maxImageSize = 2 * 1024 * 1024
@@ -74,6 +75,25 @@ router.post('/login', (req, res) => {
 
   const user = { id: 'admin', email: adminEmail, name: 'Admin', role: 'admin' }
   res.json({ user, token: createToken(user) })
+})
+
+router.get('/content', requireAdmin, async (_req, res) => {
+  try {
+    res.json({ content: await getSiteContent() })
+  } catch (error) {
+    console.error('Unable to load admin site content:', error)
+    res.status(500).json({ error: 'Site content could not be loaded.' })
+  }
+})
+
+router.put('/content', requireAdmin, async (req, res) => {
+  try {
+    const content = await saveSiteContent(req.body?.content ?? req.body)
+    res.json({ content })
+  } catch (error) {
+    console.error('Unable to save admin site content:', error)
+    res.status(400).json({ error: error.message || 'Site content could not be saved.' })
+  }
 })
 
 router.get('/images', requireAdmin, async (_req, res) => {

@@ -8,6 +8,7 @@ import mediaRouter from './routes/media.js'
 import ordersRouter from './routes/orders.js'
 import paymentsRouter from './routes/payments.js'
 import productsRouter from './routes/products.js'
+import contentRouter from './routes/content.js'
 
 const app = express()
 const allowedOrigins = (process.env.CLIENT_ORIGIN || '*')
@@ -28,6 +29,7 @@ app.use('/api/products', productsRouter)
 app.use('/api/orders', ordersRouter)
 app.use('/api/payments', paymentsRouter)
 app.use('/api/contact', contactRouter)
+app.use('/api/content', contentRouter)
 
 app.use((error, _req, res, next) => {
   if (error.type === 'entity.too.large') {

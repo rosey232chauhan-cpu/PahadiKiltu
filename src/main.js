@@ -78,6 +78,8 @@ const state = {
   adminProducts: [],
   adminPhotoStories: [],
   adminImagesLoaded: false,
+  siteContent: null,
+  adminContent: null,
 }
 const API_BASE_URL = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '')
 const root = document.querySelector('#root')
@@ -102,7 +104,10 @@ const saveState = () => {
 }
 const cartItemCount = () => state.cartItems.reduce((total, item) => total + item.quantity, 0)
 const link = (path, label, className = '') => `<a href="${path}" class="${className}" data-route>${label}</a>`
-const whatsappLink = (message) => `https://wa.me/${whatsappNumber}?text=${encodeURIComponent(message)}`
+const whatsappLink = (message) => {
+  const number = state.siteContent?.whatsappNumber || whatsappNumber
+  return `https://wa.me/${number}?text=${encodeURIComponent(message)}`
+}
 
 function updateCatalogImages(categories, images = {}, photoStories = []) {
   state.storefrontImages = images
@@ -150,10 +155,15 @@ function updateCatalogImages(categories, images = {}, photoStories = []) {
 }
 
 async function loadCatalogImages() {
-  const response = await fetch(`${API_BASE_URL}/api/products`)
-  if (!response.ok) throw new Error('Product images could not be loaded.')
-  const result = await response.json()
-  if (Array.isArray(result.categories)) updateCatalogImages(result.categories, result.storefrontImages, result.photoStories)
+  const [catalogResponse, contentResponse] = await Promise.all([
+    fetch(`${API_BASE_URL}/api/products`),
+    fetch(`${API_BASE_URL}/api/content`),
+  ])
+  if (!catalogResponse.ok) throw new Error('Product images could not be loaded.')
+  const catalog = await catalogResponse.json()
+  const contentResult = await contentResponse.json().catch(() => ({}))
+  if (contentResponse.ok && contentResult.content) state.siteContent = contentResult.content
+  if (Array.isArray(catalog.categories)) updateCatalogImages(catalog.categories, catalog.storefrontImages, catalog.photoStories)
   if (window.location.pathname !== '/admin') render()
 }
 
@@ -190,10 +200,24 @@ function header() {
     : state.auth
       ? `<span class="account-name">Hi, ${escapeHtml(state.auth.user.name)}</span><button type="button" class="header-action" data-logout>Logout</button> ${link('/admin', 'Store Admin')}`
       : `${link('/login', 'Login')} ${link('/register', 'Register')} ${link('/admin', 'Store Admin')}`
-  return `<header class="site-header"><div class="brand"><img src="${storefrontImage('storefront:site-logo', pahadiKiltuLogo)}" alt="PahadiKiltu logo"></div><nav>${link('/', 'Home')} ${link('/about', 'About')} ${link('/farm', 'Farm Stories')} ${link('/products', 'Products')} ${link('/cart', `Cart (${cartItemCount()})`)} ${link('/contact-us', 'Contact Us')} ${accountLinks}</nav></header>`
+  const navigation = state.siteContent?.navigation?.length
+    ? state.siteContent.navigation.map((item) => item.path === '/cart'
+      ? link(item.path, `${item.label} (${cartItemCount()})`)
+      : link(item.path, item.label)).join(' ')
+    : `${link('/', 'Home')} ${link('/about', 'About')} ${link('/farm', 'Farm Stories')} ${link('/products', 'Products')} ${link('/cart', `Cart (${cartItemCount()})`)} ${link('/contact-us', 'Contact Us')}`
+  return `<header class="site-header"><div class="brand"><img src="${storefrontImage('storefront:site-logo', pahadiKiltuLogo)}" alt="${escapeHtml(state.siteContent?.brandName || 'PahadiKiltu')} logo"></div><nav>${navigation} ${accountLinks}</nav></header>`
 }
 
 function homePage() {
+  const content = state.siteContent?.home || {}
+  const hiddenSections = new Set(state.siteContent?.hiddenHomeSections || [])
+  const customBlocks = (state.siteContent?.customBlocks || [])
+    .filter((block) => block.enabled !== false)
+    .map((block) => {
+      const image = block.image ? `<img src="${escapeHtml(block.image)}" alt="${escapeHtml(block.title)}" loading="lazy">` : ''
+      const action = block.path && block.buttonLabel ? link(block.path, block.buttonLabel, 'btn secondary') : ''
+      return `<section class="section-block cms-custom-block"><div>${block.title ? `<h2>${escapeHtml(block.title)}</h2>` : ''}${block.text ? `<p>${escapeHtml(block.text)}</p>` : ''}${action}</div>${image}</section>`
+    }).join('')
   const categoryCards = [
     { title: 'Fruits', image: productCategories[0].image, path: '/products/fresh-fruits', note: 'Fresh seasonal picks' },
     { title: 'Grains', image: productCategories[2].image, path: '/products/grains', note: 'Wholesome pantry staples' },
@@ -233,17 +257,16 @@ function homePage() {
       : `<span class="photo-story-caption"><small>${escapeHtml(story.label)}</small><strong>${escapeHtml(story.title)}</strong>${story.description ? `<span>${escapeHtml(story.description)}</span>` : ''}</span><span class="photo-motion-badge"><span aria-hidden="true"></span> Fresh picks</span>`
     return `<article class="photo-story-card${index === 0 ? ' photo-story-featured' : ''}${story.video ? ' photo-story-video' : ''}" data-photo-story>${visual}${caption}</article>`
   }).join('')
-  return `<div class="home-layout">
-    <section class="hero-section"><div class="hero-copy-block"><p class="eyebrow">From the hills to your home</p><h1>Freshness from the Hills, Delivered to Your Home.</h1><p class="hero-copy">Discover seasonal fruits, wholesome grains and everyday goodness from PahadiKiltu.</p><p class="hero-assurance">Locally sourced <span aria-hidden="true">•</span> Fresh quality <span aria-hidden="true">•</span> Convenient delivery</p><div class="hero-actions">${link('/products/fresh-fruits', 'Shop Fruits', 'btn primary')}${link('/products/grains', 'Shop Grains', 'btn secondary')}</div><p class="hero-origin">Based in Karal, Kotkhai, Shimla, Himachal Pradesh</p></div><div class="hero-visual"><img class="hero-fruit-image" src="${productCategories[0].items[0].image}" alt="Fresh red apples" fetchpriority="high"><img class="hero-grain-image" src="${productCategories[2].image}" alt="Golden grain harvest" loading="lazy"><span class="hero-photo-note">A little goodness from the hills</span></div></section>
-    <section class="section-block photo-stories-section home-media-section"><div class="section-heading"><div><p class="eyebrow">A little closer to nature</p><h2>Fresh from the hills</h2><p class="section-caption">Fruit, nuts and grains in photos, mixed with four short harvest clips that play as you browse.</p></div><span class="video-live-badge"><span aria-hidden="true"></span> Photos &amp; moving clips</span></div><div class="photo-stories-grid">${photoStoryCards}</div></section>
-    <section class="section-block category-section"><div class="section-heading"><div><p class="eyebrow">Find your favourites</p><h2>Shop by Category</h2></div>${link('/products', 'View all products', 'text-link')}</div><div class="home-category-grid">${categoryCards.map((category) => category.path ? `<a class="home-category-card" href="${category.path}" data-route><img src="${category.image}" alt="${category.title}" loading="lazy"><span><strong>${category.title}</strong><small>${category.note}</small></span></a>` : `<a class="home-category-card category-coming-soon" href="${whatsappLink('Hello PahadiKiltu, please share your current pulses availability.')}" target="_blank" rel="noopener noreferrer"><img src="${category.image}" alt="${category.title}" loading="lazy"><span><strong>${category.title}</strong><small>${category.note}</small></span></a>`).join('')}</div></section>
-    <section class="section-block catalogue-feature"><div class="section-heading"><div><p class="eyebrow">Picked from our current range</p><h2>Best Sellers</h2><p class="section-caption">Featured catalogue picks; not yet ranked by sales.</p></div>${link('/products', 'Shop all products', 'text-link')}</div><div class="home-product-grid">${bestPicks.map(productCard).join('')}</div></section>
-    <section class="section-block himachal-section"><div class="himachal-intro"><p class="eyebrow">Our home in the hills</p><h2>From the Hills of Himachal</h2><p>Our business is based in Karal, Kotkhai, Shimla. Product origins and seasonal availability can vary by batch—ask us and we’ll confirm before you order.</p></div><div class="hill-produce-grid">${himachalCards}</div></section>
-    <section class="section-block combo-section"><div class="section-heading"><div><p class="eyebrow">Make it your own</p><h2>Combos &amp; Everyday Picks</h2><p class="section-caption">Choose products and quantities from the live catalogue. No bundle discount is applied.</p></div></div><div class="combo-grid">${comboCards.map((combo) => `<article class="combo-card"><img src="${combo.image}" alt="${combo.title}" loading="lazy"><div><h3>${combo.title}</h3><p>${combo.description}</p>${link(combo.path, combo.action, 'btn secondary')}</div></article>`).join('')}</div></section>
-    <section class="section-block why-section"><p class="eyebrow">The PahadiKiltu promise</p><h2>Why PahadiKiltu?</h2><div class="why-grid"><article><span aria-hidden="true">01</span><h3>Fresh quality</h3><p>Thoughtfully selected products from the current catalogue.</p></article><article><span aria-hidden="true">02</span><h3>Local roots</h3><p>We’re based in Kotkhai, Shimla, Himachal Pradesh.</p></article><article><span aria-hidden="true">03</span><h3>Simple ordering</h3><p>Choose your quantity, review the delivery charge, and order online.</p></article></div></section>
-    <section class="section-block reviews-section"><p class="eyebrow">Your experience matters</p><h2>Customer Reviews</h2><p>Verified customer feedback will appear here as we collect it. We don’t publish unverified testimonials.</p></section>
-    <section class="section-block delivery-section"><div><p class="eyebrow">Before you order</p><h2>Delivery Information</h2><p>Delivery charge: ₹49 per order. Delivery areas and estimated timing are confirmed for your address—message us on WhatsApp before ordering if you’d like to check.</p></div><a class="btn primary" href="${whatsappLink('Hello PahadiKiltu, please confirm delivery availability and estimated timing for my area.')}" target="_blank" rel="noopener noreferrer">Check delivery on WhatsApp</a></section>
-  </div>`
+  const heroSection = hiddenSections.has('hero') ? '' : `<section class="hero-section"><div class="hero-copy-block"><p class="eyebrow">${escapeHtml(content.eyebrow || 'From the hills to your home')}</p><h1>${escapeHtml(content.title || 'Freshness from the Hills, Delivered to Your Home.')}</h1><p class="hero-copy">${escapeHtml(content.description || '')}</p><p class="hero-assurance">${escapeHtml(content.assurance || '')}</p><div class="hero-actions">${link('/products/fresh-fruits', 'Shop Fruits', 'btn primary')}${link('/products/grains', 'Shop Grains', 'btn secondary')}</div><p class="hero-origin">${escapeHtml(content.origin || '')}</p></div><div class="hero-visual"><img class="hero-fruit-image" src="${productCategories[0].items[0].image}" alt="Fresh red apples" fetchpriority="high"><img class="hero-grain-image" src="${productCategories[2].image}" alt="Golden grain harvest" loading="lazy"><span class="hero-photo-note">A little goodness from the hills</span></div></section>`
+  const storiesSection = hiddenSections.has('stories') ? '' : `<section class="section-block photo-stories-section home-media-section"><div class="section-heading"><div><p class="eyebrow">A little closer to nature</p><h2>Fresh from the hills</h2><p class="section-caption">Fruit, nuts and grains in photos, mixed with four short harvest clips that play as you browse.</p></div><span class="video-live-badge"><span aria-hidden="true"></span> Photos &amp; moving clips</span></div><div class="photo-stories-grid">${photoStoryCards}</div></section>`
+  const categoriesSection = hiddenSections.has('categories') ? '' : `<section class="section-block category-section"><div class="section-heading"><div><p class="eyebrow">Find your favourites</p><h2>Shop by Category</h2></div>${link('/products', 'View all products', 'text-link')}</div><div class="home-category-grid">${categoryCards.map((category) => category.path ? `<a class="home-category-card" href="${category.path}" data-route><img src="${category.image}" alt="${category.title}" loading="lazy"><span><strong>${category.title}</strong><small>${category.note}</small></span></a>` : `<a class="home-category-card category-coming-soon" href="${whatsappLink('Hello PahadiKiltu, please share your current pulses availability.')}" target="_blank" rel="noopener noreferrer"><img src="${category.image}" alt="${category.title}" loading="lazy"><span><strong>${category.title}</strong><small>${category.note}</small></span></a>`).join('')}</div></section>`
+  const productsSection = hiddenSections.has('products') ? '' : `<section class="section-block catalogue-feature"><div class="section-heading"><div><p class="eyebrow">Picked from our current range</p><h2>Best Sellers</h2><p class="section-caption">Featured catalogue picks; not yet ranked by sales.</p></div>${link('/products', 'Shop all products', 'text-link')}</div><div class="home-product-grid">${bestPicks.map(productCard).join('')}</div></section>`
+  const himachalSection = hiddenSections.has('himachal') ? '' : `<section class="section-block himachal-section"><div class="himachal-intro"><p class="eyebrow">Our home in the hills</p><h2>From the Hills of Himachal</h2><p>Our business is based in Karal, Kotkhai, Shimla. Product origins and seasonal availability can vary by batch—ask us and we’ll confirm before you order.</p></div><div class="hill-produce-grid">${himachalCards}</div></section>`
+  const combosSection = hiddenSections.has('combos') ? '' : `<section class="section-block combo-section"><div class="section-heading"><div><p class="eyebrow">Make it your own</p><h2>Combos &amp; Everyday Picks</h2><p class="section-caption">Choose products and quantities from the live catalogue. No bundle discount is applied.</p></div></div><div class="combo-grid">${comboCards.map((combo) => `<article class="combo-card"><img src="${combo.image}" alt="${combo.title}" loading="lazy"><div><h3>${combo.title}</h3><p>${combo.description}</p>${link(combo.path, combo.action, 'btn secondary')}</div></article>`).join('')}</div></section>`
+  const whySection = hiddenSections.has('why') ? '' : `<section class="section-block why-section"><p class="eyebrow">The PahadiKiltu promise</p><h2>Why PahadiKiltu?</h2><div class="why-grid"><article><span aria-hidden="true">01</span><h3>Fresh quality</h3><p>Thoughtfully selected products from the current catalogue.</p></article><article><span aria-hidden="true">02</span><h3>Local roots</h3><p>We’re based in Kotkhai, Shimla, Himachal Pradesh.</p></article><article><span aria-hidden="true">03</span><h3>Simple ordering</h3><p>Choose your quantity, review the delivery charge, and order online.</p></article></div></section>`
+  const reviewsSection = hiddenSections.has('reviews') ? '' : `<section class="section-block reviews-section"><p class="eyebrow">Your experience matters</p><h2>Customer Reviews</h2><p>Verified customer feedback will appear here as we collect it. We don’t publish unverified testimonials.</p></section>`
+  const deliverySection = hiddenSections.has('delivery') ? '' : `<section class="section-block delivery-section"><div><p class="eyebrow">Before you order</p><h2>Delivery Information</h2><p>Delivery charge: ₹49 per order. Delivery areas and estimated timing are confirmed for your address—message us on WhatsApp before ordering if you’d like to check.</p></div><a class="btn primary" href="${whatsappLink('Hello PahadiKiltu, please confirm delivery availability and estimated timing for my area.')}" target="_blank" rel="noopener noreferrer">Check delivery on WhatsApp</a></section>`
+  return `<div class="home-layout">${heroSection}${storiesSection}${categoriesSection}${productsSection}${himachalSection}${combosSection}${whySection}${reviewsSection}${deliverySection}${customBlocks}</div>`
 }
 
 function farmStoriesPage() {
@@ -258,12 +281,14 @@ function farmStoriesPage() {
 }
 
 function aboutPage() {
+  const content = state.siteContent?.about
   const highlights = [
     ['Pure Mountain Produce', 'Naturally grown in clean Himalayan air with no unnecessary chemical exposure.', 'storefront:about-mountain-produce', 'https://images.unsplash.com/photo-1471193945509-9ad0617afabf?auto=format&fit=crop&w=1200&q=80'],
     ['Traditional Sun-Dried Method', 'We preserve freshness and nutrition through time-tested drying practices.', 'storefront:about-sun-dried', 'https://images.unsplash.com/photo-1615485925763-86786288908d?auto=format&fit=crop&w=1200&q=80'],
     ['Sustainably Sourced', 'Every harvest supports local growers and responsible farming ecosystems.', 'storefront:about-sustainable', 'https://images.unsplash.com/photo-1501004318641-b39e6451bec6?auto=format&fit=crop&w=1200&q=80'],
   ]
-  return `<div class="about-layout"><section class="about-hero"><div><p class="eyebrow">From The Pahadi Himalayas</p><h1>About PahadiKiltu</h1><p>Welcome to PahadiKiltu, where we bring you the purest, freshest, and most authentic flavors of the Pahadi Himalayas - straight from our farms to your home. We specialize in fresh and dried fruits, grains, nuts, and wholesome farm produce, grown naturally in the pristine mountain air.</p><p>No middlemen, no compromises - just farm-fresh goodness, handpicked and sun-dried the traditional way. Our commitment? Pure, chemical-free, and sustainably sourced food that nourishes your body and soul.</p><p>Whether it is nutrient-rich dry fruits, organic grains, or local Himalayan specialties, we ensure every bite carries the unmatched taste and health benefits of the hills. Taste the Himalayas. Eat pure, live healthy.</p></div><img class="about-hero-image" src="${storefrontImage('storefront:about-mountains', 'https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?auto=format&fit=crop&w=1400&q=80')}" alt="Himalayan mountain farms" loading="lazy"></section><section class="about-highlights">${highlights.map(([title, description, target, fallback]) => `<article class="about-highlight-card"><img src="${storefrontImage(target, fallback)}" alt="${title}" loading="lazy"><h3>${title}</h3><p>${description}</p></article>`).join('')}</section></div>`
+  const paragraphs = (content?.paragraphs || []).map((paragraph) => `<p>${escapeHtml(paragraph)}</p>`).join('')
+  return `<div class="about-layout"><section class="about-hero"><div><p class="eyebrow">${escapeHtml(content?.eyebrow || 'From The Pahadi Himalayas')}</p><h1>${escapeHtml(content?.title || 'About PahadiKiltu')}</h1>${paragraphs}</div><img class="about-hero-image" src="${storefrontImage('storefront:about-mountains', 'https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?auto=format&fit=crop&w=1400&q=80')}" alt="Himalayan mountain farms" loading="lazy"></section><section class="about-highlights">${highlights.map(([title, description, target, fallback]) => `<article class="about-highlight-card"><img src="${storefrontImage(target, fallback)}" alt="${title}" loading="lazy"><h3>${title}</h3><p>${description}</p></article>`).join('')}</section></div>`
 }
 
 function productsPage() {
@@ -285,7 +310,11 @@ function cartPage() {
 }
 
 function contactPage() {
-  return `<section class="page-card section-block contact-page"><h1>Contact Us</h1><div class="contact-details"><p>Email: <a href="mailto:hello@pahadikiltu.com">hello@pahadikiltu.com</a></p><p>Phone: <a href="tel:+917018777497">7018777497</a></p><p>WhatsApp: <a class="btn primary whatsapp-link" href="https://wa.me/917018777497?text=Hello%20PahadiKiltu%2C%20I%27d%20like%20to%20get%20in%20touch." target="_blank" rel="noopener noreferrer">Chat with us on WhatsApp</a></p><p>Address: Karal, Kotkhai, Shimla, Himachal Pradesh</p></div><form class="contact-form" id="contact-form"><label for="name">Name</label><input id="name" name="name" required><label for="email">Email</label><input id="email" name="email" type="email" required><label for="message">Message</label><textarea id="message" name="message" rows="4" required></textarea><button type="submit">Send Message</button></form><p class="form-success" id="contact-success" hidden>Thank you for contacting PahadiKiltu. We will reach out soon.</p></section>`
+  const content = state.siteContent?.contact || {}
+  const email = content.email || 'hello@pahadikiltu.com'
+  const phone = content.phone || '7018777497'
+  const address = content.address || 'Karal, Kotkhai, Shimla, Himachal Pradesh'
+  return `<section class="page-card section-block contact-page"><h1>${escapeHtml(content.title || 'Contact Us')}</h1><div class="contact-details"><p>Email: <a href="mailto:${escapeHtml(email)}">${escapeHtml(email)}</a></p><p>Phone: <a href="tel:+91${escapeHtml(phone)}">${escapeHtml(phone)}</a></p><p>WhatsApp: <a class="btn primary whatsapp-link" href="${whatsappLink('Hello PahadiKiltu, I would like to get in touch.')}" target="_blank" rel="noopener noreferrer">Chat with us on WhatsApp</a></p><p>Address: ${escapeHtml(address)}</p></div><form class="contact-form" id="contact-form"><label for="name">Name</label><input id="name" name="name" required><label for="email">Email</label><input id="email" name="email" type="email" required><label for="message">Message</label><textarea id="message" name="message" rows="4" required></textarea><button type="submit">Send Message</button></form><p class="form-success" id="contact-success" hidden>Thank you for contacting PahadiKiltu. We will reach out soon.</p></section>`
 }
 
 function authPage(mode) {
@@ -298,7 +327,7 @@ function adminPage() {
     return `<section class="page-card section-block auth-page"><p class="eyebrow">Store management</p><h1>Admin login</h1><p>Sign in with the store admin account to manage product details and images.</p><form class="contact-form" id="admin-login-form"><label for="admin-email">Admin email</label><input id="admin-email" name="email" type="email" value="rosey232chauhan@gmail.com" autocomplete="username" required><label for="admin-password">Password</label><input id="admin-password" name="password" type="password" autocomplete="current-password" required><button type="submit">Sign in</button></form></section>`
   }
 
-  const activeTab = ['products', 'images', 'photos'].includes(state.adminTab) ? state.adminTab : 'products'
+  const activeTab = ['products', 'images', 'photos', 'content'].includes(state.adminTab) ? state.adminTab : 'products'
   const imageType = (target) => target.startsWith('category:') ? 'category' : 'storefront'
   const storefrontImageCards = state.adminImages
     .filter((entry) => !entry.target.startsWith('product:'))
@@ -310,7 +339,12 @@ function adminPage() {
     return `<article class="admin-product-card" data-admin-product-card data-product-search="${escapeHtml(`${product.name} ${product.categoryName}`.toLowerCase())}" data-product-category="${escapeHtml(product.categorySlug)}"><div class="admin-product-preview"><img src="${escapeHtml(image)}" alt="${escapeHtml(product.name)}" loading="lazy"><span>${product.isAvailable ? 'Available' : 'Currently unavailable'}</span></div><div class="admin-product-editor"><p class="admin-card-eyebrow">${escapeHtml(product.categoryName)}</p><h3>${escapeHtml(product.name)}</h3><form class="contact-form admin-product-form" data-admin-product-form data-sku="${escapeHtml(product.sku)}"><label>Product name<input name="name" value="${escapeHtml(product.name)}" maxlength="100" required></label><label>Description<textarea name="info" rows="3" maxlength="500" required>${escapeHtml(product.info)}</textarea></label><label>Price per kg (₹)<input name="priceInRupees" type="number" min="0.01" max="100000" step="0.01" value="${product.priceInRupees}" required></label><label class="admin-product-availability"><input name="isAvailable" type="checkbox" ${product.isAvailable ? 'checked' : ''}><span>Available for orders</span></label><button type="submit" class="btn primary">Save product changes</button></form><form class="admin-image-upload-form" data-admin-image-form data-target="${escapeHtml(imageTarget)}"><label class="admin-file-label">Change product photo<input name="image" type="file" accept="image/jpeg,image/png,image/webp,image/gif" required></label><button type="submit" class="btn secondary">Upload photo</button></form>${managedImage?.customized ? `<button type="button" class="remove-btn" data-admin-image-delete="${escapeHtml(imageTarget)}">Restore default photo</button>` : ''}<button type="button" class="remove-btn admin-product-remove" data-admin-product-delete="${escapeHtml(product.sku)}">Remove product</button></div></article>`
   }).join('')
   const photoStoryCards = state.adminPhotoStories.map((story) => `<article class="admin-image-card"><img src="${escapeHtml(story.image)}" alt="${escapeHtml(story.title)}" loading="lazy"><div><h3>${escapeHtml(story.title)}</h3><p>${escapeHtml(story.label)}</p><button type="button" class="remove-btn" data-admin-photo-delete="${escapeHtml(story.id)}">Remove photo story</button></div></article>`).join('')
-  return `<div class="admin-layout"><section class="page-card section-block admin-welcome"><p class="eyebrow">Your store dashboard</p><h1>What would you like to update?</h1><p>Choose a section below. Your changes save to the store and appear on the website after saving.</p><div class="admin-summary"><span><strong>${state.adminProducts.length}</strong> products</span><span><strong>${state.adminImages.filter((imageEntry) => imageEntry.customized).length}</strong> custom images</span><span><strong>${state.adminPhotoStories.length}</strong> extra homepage photos</span></div></section><nav class="admin-tabs" aria-label="Store management sections">${[['products', 'Products & prices'], ['images', 'Website photos'], ['photos', 'Homepage gallery']].map(([tab, label]) => `<button type="button" class="admin-tab${activeTab === tab ? ' is-active' : ''}" data-admin-tab="${tab}" aria-selected="${activeTab === tab}">${label}</button>`).join('')}</nav><section class="page-card section-block admin-panel" data-admin-panel="products" ${activeTab !== 'products' ? 'hidden' : ''}><div class="admin-panel-heading"><div><h2>Products & prices</h2><p>Find a product, change its details or price, and save. Prices are per kilogram.</p></div><span class="admin-count">${state.adminProducts.length} products</span></div><form class="admin-create-product" id="admin-product-create-form"><h3>Add a product</h3><div class="admin-product-create-grid"><label>Product name<input name="name" maxlength="100" placeholder="For example, Himachali Rajma" required></label><label>Category<select name="categorySlug" required>${productCategories.map((category) => `<option value="${category.slug}">${escapeHtml(category.name)}</option>`).join('')}</select></label><label>Price per kg (₹)<input name="priceInRupees" type="number" min="0.01" max="100000" step="0.01" placeholder="0.00" required></label><label class="admin-product-create-description">Short description<textarea name="info" rows="2" maxlength="500" placeholder="A short description customers will see." required></textarea></label></div><p>After adding, you can upload a product photo below its card.</p><button type="submit" class="btn primary">Add product</button></form><div class="admin-filters"><label>Find a product<input type="search" id="admin-product-search" placeholder="Search by name" autocomplete="off"></label><label>Category<select id="admin-product-category"><option value="">All categories</option>${productCategories.map((category) => `<option value="${category.slug}">${escapeHtml(category.name)}</option>`).join('')}</select></label></div><div class="admin-product-grid">${productCards}</div><p class="admin-no-results" id="admin-product-empty" hidden>No products match your search.</p></section><section class="page-card section-block admin-panel" data-admin-panel="images" ${activeTab !== 'images' ? 'hidden' : ''}><div class="admin-panel-heading"><div><h2>Website photos</h2><p>Select a new photo next to the place you want to update. You can restore the original anytime.</p></div><span class="admin-count">${storefrontImageCards ? state.adminImages.filter((imageEntry) => !imageEntry.target.startsWith('product:')).length : 0} image spots</span></div><div class="admin-filters"><label>Find a photo spot<input type="search" id="admin-image-search" placeholder="Search images" autocomplete="off"></label><label>Show<select id="admin-image-type"><option value="">All photo spots</option><option value="category">Category photos</option><option value="storefront">Other website photos</option></select></label></div><div class="admin-image-grid">${storefrontImageCards}</div><p class="admin-no-results" id="admin-image-empty" hidden>No photo spots match your search.</p></section><section class="page-card section-block admin-panel" data-admin-panel="photos" ${activeTab !== 'photos' ? 'hidden' : ''}><div class="admin-panel-heading"><div><h2>Homepage gallery</h2><p>Add or remove extra photos shown in the “Fresh from the hills” section.</p></div><span class="admin-count">${state.adminPhotoStories.length} extra photos</span></div><form class="contact-form admin-photo-story-form" id="admin-photo-story-form"><label for="admin-photo-title">Photo title</label><input id="admin-photo-title" name="title" maxlength="120" placeholder="Example: Fresh apples from the orchard" required><label for="admin-photo-label">Small label<input id="admin-photo-label" name="label" maxlength="60" placeholder="Example: Apple harvest" required></label><label for="admin-photo-description">Short description (optional)<textarea id="admin-photo-description" name="description" rows="2" maxlength="240" placeholder="Tell customers a little about this photo."></textarea></label><label for="admin-photo-file">Choose a photo (JPEG, PNG, WebP or GIF; up to 2 MB)<input id="admin-photo-file" name="image" type="file" accept="image/jpeg,image/png,image/webp,image/gif" required></label><button type="submit" class="btn primary">Add photo to homepage</button></form><div class="admin-image-grid">${photoStoryCards || '<p class="admin-empty-note">No extra homepage photos yet. Add one using the form above.</p>'}</div></section></div>`
+  const content = state.adminContent
+  const sectionOptions = ['hero','stories','categories','products','himachal','combos','why','reviews','delivery'].map((id) => `<label class="admin-section-toggle"><input type="checkbox" name="visibleSection" value="${id}" ${!content?.hiddenHomeSections?.includes(id) ? 'checked' : ''}><span>${id[0].toUpperCase()}${id.slice(1)} section</span></label>`).join('')
+  const navigationRows = (content?.navigation || []).map((item, index) => `<div class="admin-navigation-row"><input name="navLabel${index}" value="${escapeHtml(item.label)}" maxlength="40"><input name="navPath${index}" value="${escapeHtml(item.path)}" maxlength="200"><button type="button" class="remove-btn" data-remove-nav="${index}">Remove</button></div>`).join('')
+  const blockRows = (content?.customBlocks || []).map((block, index) => `<article class="admin-content-block"><label>Title<input name="blockTitle${index}" value="${escapeHtml(block.title)}" maxlength="160"></label><label>Text<textarea name="blockText${index}" rows="3" maxlength="1000">${escapeHtml(block.text)}</textarea></label><label>Image URL<input name="blockImage${index}" value="${escapeHtml(block.image)}" maxlength="2000"></label><label>Button label<input name="blockButton${index}" value="${escapeHtml(block.buttonLabel)}" maxlength="60"></label><label>Button link<input name="blockPath${index}" value="${escapeHtml(block.path)}" maxlength="500"></label><label class="admin-product-availability"><input name="blockEnabled${index}" type="checkbox" ${block.enabled !== false ? 'checked' : ''}><span>Visible</span></label><button type="button" class="remove-btn" data-remove-block="${index}">Remove block</button></article>`).join('')
+  const contentPanel = `<section class="page-card section-block admin-panel" data-admin-panel="content" ${activeTab !== 'content' ? 'hidden' : ''}><div class="admin-panel-heading"><div><h2>Website content</h2><p>Edit brand text, navigation, homepage sections and custom blocks.</p></div></div><form class="contact-form admin-content-form" id="admin-content-form"><h3>Brand and navigation</h3><div class="admin-content-grid"><label>Brand name<input name="brandName" value="${escapeHtml(content?.brandName || 'PahadiKiltu')}" maxlength="60"></label><label>Footer text<input name="footerText" value="${escapeHtml(content?.footerText || 'Freshness Delivered Daily.')}" maxlength="120"></label><label>WhatsApp number<input name="whatsappNumber" value="${escapeHtml(content?.whatsappNumber || '917018777497')}" maxlength="20"></label><label>Default WhatsApp message<input name="whatsappDefaultMessage" value="${escapeHtml(content?.whatsappDefaultMessage || '')}" maxlength="300"></label></div><h3>Navigation links</h3><div id="admin-navigation-editor">${navigationRows}</div><button type="button" class="btn secondary" id="admin-add-navigation">Add navigation link</button><h3>Homepage hero</h3><div class="admin-content-grid"><label>Eyebrow<input name="homeEyebrow" value="${escapeHtml(content?.home?.eyebrow || '')}" maxlength="100"></label><label>Title<input name="homeTitle" value="${escapeHtml(content?.home?.title || '')}" maxlength="160"></label><label>Assurance<input name="homeAssurance" value="${escapeHtml(content?.home?.assurance || '')}" maxlength="180"></label><label>Origin<input name="homeOrigin" value="${escapeHtml(content?.home?.origin || '')}" maxlength="180"></label><label class="admin-content-full">Description<textarea name="homeDescription" rows="3" maxlength="500">${escapeHtml(content?.home?.description || '')}</textarea></label></div><h3>About page</h3><div class="admin-content-grid"><label>Eyebrow<input name="aboutEyebrow" value="${escapeHtml(content?.about?.eyebrow || '')}" maxlength="100"></label><label>Title<input name="aboutTitle" value="${escapeHtml(content?.about?.title || '')}" maxlength="160"></label><label class="admin-content-full">Paragraphs (one per line)<textarea name="aboutParagraphs" rows="5" maxlength="2000">${escapeHtml((content?.about?.paragraphs || []).join('\n'))}</textarea></label></div><h3>Contact page</h3><div class="admin-content-grid"><label>Title<input name="contactTitle" value="${escapeHtml(content?.contact?.title || '')}" maxlength="100"></label><label>Email<input name="contactEmail" type="email" value="${escapeHtml(content?.contact?.email || '')}" maxlength="160"></label><label>Phone<input name="contactPhone" value="${escapeHtml(content?.contact?.phone || '')}" maxlength="30"></label><label>Address<input name="contactAddress" value="${escapeHtml(content?.contact?.address || '')}" maxlength="240"></label></div><h3>Homepage sections</h3><div class="admin-section-grid">${sectionOptions}</div><h3>Custom homepage blocks</h3><div id="admin-custom-blocks">${blockRows}</div><button type="button" class="btn secondary" id="admin-add-block">Add custom block</button><button type="submit" class="btn primary">Save website content</button></form></section>`
+  return `<div class="admin-layout"><section class="page-card section-block admin-welcome"><p class="eyebrow">Your store dashboard</p><h1>What would you like to update?</h1><p>Choose a section below. Your changes save to the store and appear on the website after saving.</p><div class="admin-summary"><span><strong>${state.adminProducts.length}</strong> products</span><span><strong>${state.adminImages.filter((imageEntry) => imageEntry.customized).length}</strong> custom images</span><span><strong>${state.adminPhotoStories.length}</strong> extra homepage photos</span></div></section><nav class="admin-tabs" aria-label="Store management sections">${[['products', 'Products & prices'], ['images', 'Website photos'], ['photos', 'Homepage gallery'], ['content', 'Website content']].map(([tab, label]) => `<button type="button" class="admin-tab${activeTab === tab ? ' is-active' : ''}" data-admin-tab="${tab}" aria-selected="${activeTab === tab}">${label}</button>`).join('')}</nav><section class="page-card section-block admin-panel" data-admin-panel="products" ${activeTab !== 'products' ? 'hidden' : ''}><div class="admin-panel-heading"><div><h2>Products & prices</h2><p>Find a product, change its details or price, and save. Prices are per kilogram.</p></div><span class="admin-count">${state.adminProducts.length} products</span></div><form class="admin-create-product" id="admin-product-create-form"><h3>Add a product</h3><div class="admin-product-create-grid"><label>Product name<input name="name" maxlength="100" placeholder="For example, Himachali Rajma" required></label><label>Category<select name="categorySlug" required>${productCategories.map((category) => `<option value="${category.slug}">${escapeHtml(category.name)}</option>`).join('')}</select></label><label>Price per kg (₹)<input name="priceInRupees" type="number" min="0.01" max="100000" step="0.01" placeholder="0.00" required></label><label class="admin-product-create-description">Short description<textarea name="info" rows="2" maxlength="500" placeholder="A short description customers will see." required></textarea></label></div><p>After adding, you can upload a product photo below its card.</p><button type="submit" class="btn primary">Add product</button></form><div class="admin-filters"><label>Find a product<input type="search" id="admin-product-search" placeholder="Search by name" autocomplete="off"></label><label>Category<select id="admin-product-category"><option value="">All categories</option>${productCategories.map((category) => `<option value="${category.slug}">${escapeHtml(category.name)}</option>`).join('')}</select></label></div><div class="admin-product-grid">${productCards}</div><p class="admin-no-results" id="admin-product-empty" hidden>No products match your search.</p></section><section class="page-card section-block admin-panel" data-admin-panel="images" ${activeTab !== 'images' ? 'hidden' : ''}><div class="admin-panel-heading"><div><h2>Website photos</h2><p>Select a new photo next to the place you want to update. You can restore the original anytime.</p></div><span class="admin-count">${storefrontImageCards ? state.adminImages.filter((imageEntry) => !imageEntry.target.startsWith('product:')).length : 0} image spots</span></div><div class="admin-filters"><label>Find a photo spot<input type="search" id="admin-image-search" placeholder="Search images" autocomplete="off"></label><label>Show<select id="admin-image-type"><option value="">All photo spots</option><option value="category">Category photos</option><option value="storefront">Other website photos</option></select></label></div><div class="admin-image-grid">${storefrontImageCards}</div><p class="admin-no-results" id="admin-image-empty" hidden>No photo spots match your search.</p></section><section class="page-card section-block admin-panel" data-admin-panel="photos" ${activeTab !== 'photos' ? 'hidden' : ''}><div class="admin-panel-heading"><div><h2>Homepage gallery</h2><p>Add or remove extra photos shown in the “Fresh from the hills” section.</p></div><span class="admin-count">${state.adminPhotoStories.length} extra photos</span></div><form class="contact-form admin-photo-story-form" id="admin-photo-story-form"><label for="admin-photo-title">Photo title</label><input id="admin-photo-title" name="title" maxlength="120" placeholder="Example: Fresh apples from the orchard" required><label for="admin-photo-label">Small label<input id="admin-photo-label" name="label" maxlength="60" placeholder="Example: Apple harvest" required></label><label for="admin-photo-description">Short description (optional)<textarea id="admin-photo-description" name="description" rows="2" maxlength="240" placeholder="Tell customers a little about this photo."></textarea></label><label for="admin-photo-file">Choose a photo (JPEG, PNG, WebP or GIF; up to 2 MB)<input id="admin-photo-file" name="image" type="file" accept="image/jpeg,image/png,image/webp,image/gif" required></label><button type="submit" class="btn primary">Add photo to homepage</button></form><div class="admin-image-grid">${photoStoryCards || '  <p class="admin-empty-note">No extra homepage photos yet. Add one using the form above.</p>'}</div></section>${contentPanel}</div>`
 }
 
 function pageContent(path) {
@@ -331,7 +365,9 @@ function render() {
   mediaObserver?.disconnect()
   root.querySelectorAll('video[data-auto-play]').forEach((video) => video.pause())
   const path = window.location.pathname
-  root.innerHTML = `<div class="site-shell">${header()}<main class="site-main">${pageContent(path)}</main><footer class="site-footer"><p>© ${new Date().getFullYear()} PahadiKiltu. Freshness Delivered Daily.</p></footer></div><a class="floating-whatsapp" href="${whatsappLink('Hello PahadiKiltu, I have a question about an order.')}" target="_blank" rel="noopener noreferrer" aria-label="Contact PahadiKiltu on WhatsApp">WhatsApp</a><div id="toast-container" aria-live="polite"></div>`
+  const brandName = state.siteContent?.brandName || 'PahadiKiltu'
+  const footerText = state.siteContent?.footerText || 'Freshness Delivered Daily.'
+  root.innerHTML = `<div class="site-shell">${header()}<main class="site-main">${pageContent(path)}</main><footer class="site-footer"><p>© ${new Date().getFullYear()} ${escapeHtml(brandName)}. ${escapeHtml(footerText)}</p></footer></div><a class="floating-whatsapp" href="${whatsappLink(state.siteContent?.whatsappDefaultMessage || 'Hello PahadiKiltu, I have a question about an order.')}" target="_blank" rel="noopener noreferrer" aria-label="Contact ${escapeHtml(brandName)} on WhatsApp">WhatsApp</a><div id="toast-container" aria-live="polite"></div>`
   const search = document.querySelector('#product-search')
   if (search) applyCatalogFilters()
   mediaObserver = new IntersectionObserver((entries) => {
@@ -369,22 +405,26 @@ function render() {
 async function loadAdminImages() {
   try {
     const headers = { Authorization: `Bearer ${state.admin.token}` }
-    const [imagesResponse, productsResponse, photoStoriesResponse] = await Promise.all([
+    const [imagesResponse, productsResponse, photoStoriesResponse, contentResponse] = await Promise.all([
       fetch(`${API_BASE_URL}/api/admin/images`, { headers }),
       fetch(`${API_BASE_URL}/api/admin/products`, { headers }),
       fetch(`${API_BASE_URL}/api/admin/photo-stories`, { headers }),
+      fetch(`${API_BASE_URL}/api/admin/content`, { headers }),
     ])
-    const [imagesResult, productsResult, photoStoriesResult] = await Promise.all([
+    const [imagesResult, productsResult, photoStoriesResult, contentResult] = await Promise.all([
       imagesResponse.json().catch(() => ({})),
       productsResponse.json().catch(() => ({})),
       photoStoriesResponse.json().catch(() => ({})),
+      contentResponse.json().catch(() => ({})),
     ])
     if (!imagesResponse.ok) throw new Error(imagesResult.error || 'Images could not be loaded.')
     if (!productsResponse.ok) throw new Error(productsResult.error || 'Products could not be loaded.')
     if (!photoStoriesResponse.ok) throw new Error(photoStoriesResult.error || 'Photo stories could not be loaded.')
+    if (!contentResponse.ok) throw new Error(contentResult.error || 'Website content could not be loaded.')
     state.adminImages = imagesResult.images
     state.adminProducts = productsResult.products
     state.adminPhotoStories = photoStoriesResult.stories
+    state.adminContent = contentResult.content
     state.adminImagesLoaded = true
     if (window.location.pathname === '/admin') render()
   } catch (error) {
@@ -437,12 +477,25 @@ document.addEventListener('click', (event) => {
     render()
     return
   }
+  if (event.target.closest('#admin-add-navigation')) {
+    const container = document.querySelector('#admin-navigation-editor')
+    const index = container?.querySelectorAll('.admin-navigation-row').length || 0
+    container?.insertAdjacentHTML('beforeend', `<div class="admin-navigation-row"><input name="navLabel${index}" maxlength="40" placeholder="Link label"><input name="navPath${index}" maxlength="200" placeholder="/page-path"><button type="button" class="remove-btn" data-remove-nav="${index}">Remove</button></div>`)
+    return
+  }
+  if (event.target.closest('#admin-add-block')) {
+    const container = document.querySelector('#admin-custom-blocks')
+    const index = container?.querySelectorAll('.admin-content-block').length || 0
+    container?.insertAdjacentHTML('beforeend', `<article class="admin-content-block"><label>Title<input name="blockTitle${index}" maxlength="160"></label><label>Text<textarea name="blockText${index}" rows="3" maxlength="1000"></textarea></label><label>Image URL<input name="blockImage${index}" maxlength="2000"></label><label>Button label<input name="blockButton${index}" maxlength="60"></label><label>Button link<input name="blockPath${index}" maxlength="500"></label><label class="admin-product-availability"><input name="blockEnabled${index}" type="checkbox" checked><span>Visible</span></label><button type="button" class="remove-btn" data-remove-block="${index}">Remove block</button></article>`)
+    return
+  }
   const adminLogout = event.target.closest('[data-admin-logout]')
   if (adminLogout) {
     state.admin = null
     state.adminImages = []
     state.adminProducts = []
     state.adminPhotoStories = []
+    state.adminContent = null
     state.adminImagesLoaded = false
     saveState()
     navigate('/')
@@ -487,6 +540,16 @@ document.addEventListener('click', (event) => {
   if (decrease) { state.cartItems = state.cartItems.map((item) => item.id === decrease.dataset.decrease ? { ...item, quantity: item.quantity - 1 } : item).filter((item) => item.quantity > 0); saveState(); render(); showToast('Quantity decreased'); return }
   const remove = event.target.closest('[data-remove]')
   if (remove) { state.cartItems = state.cartItems.filter((item) => item.id !== remove.dataset.remove); saveState(); render(); showToast('Item removed'); return }
+  const removeNavigation = event.target.closest('[data-remove-nav]')
+  if (removeNavigation) {
+    removeNavigation.closest('.admin-navigation-row')?.remove()
+    return
+  }
+  const removeBlock = event.target.closest('[data-remove-block]')
+  if (removeBlock) {
+    removeBlock.closest('.admin-content-block')?.remove()
+    return
+  }
   const removeAdminImage = event.target.closest('[data-admin-image-delete]')
   if (removeAdminImage) {
     if (!window.confirm('Restore the original photo? The custom photo will be removed.')) return
@@ -611,6 +674,89 @@ document.addEventListener('submit', async (event) => {
       showToast('Welcome, admin')
     } catch (error) {
       showToast(error.message || 'Admin login failed.', 'error')
+    }
+    return
+  }
+  if (event.target.id === 'admin-content-form') {
+    event.preventDefault()
+    const form = event.target
+    const formData = new FormData(form)
+    const allSections = ['hero','stories','categories','products','himachal','combos','why','reviews','delivery']
+    const visibleSections = new Set(formData.getAll('visibleSection'))
+    const navigation = []
+    for (const input of [...form.querySelectorAll('[name^="navLabel"]')]) {
+      const suffix = input.name.replace('navLabel', '')
+      const path = formData.get(`navPath${suffix}`)
+      if (input.value.trim() && path?.trim()) navigation.push({ label: input.value.trim(), path: path.trim() })
+    }
+    const customBlocks = [...form.querySelectorAll('.admin-content-block')].map((row, index) => {
+      const titleInput = row.querySelector('[name^="blockTitle"]')
+      const textInput = row.querySelector('[name^="blockText"]')
+      const imageInput = row.querySelector('[name^="blockImage"]')
+      const pathInput = row.querySelector('[name^="blockPath"]')
+      const buttonInput = row.querySelector('[name^="blockButton"]')
+      const enabledInput = row.querySelector('[name^="blockEnabled"]')
+      return {
+        id: `custom-${index}`,
+        type: 'text',
+        title: titleInput?.value || '',
+        text: textInput?.value || '',
+        image: imageInput?.value || '',
+        path: pathInput?.value || '',
+        buttonLabel: buttonInput?.value || '',
+        enabled: enabledInput?.checked !== false,
+      }
+    })
+    const content = {
+      ...(state.adminContent || {}),
+      brandName: formData.get('brandName'),
+      footerText: formData.get('footerText'),
+      whatsappNumber: formData.get('whatsappNumber'),
+      whatsappDefaultMessage: formData.get('whatsappDefaultMessage'),
+      navigation,
+      hiddenHomeSections: allSections.filter((section) => !visibleSections.has(section)),
+      home: {
+        ...(state.adminContent?.home || {}),
+        eyebrow: formData.get('homeEyebrow'),
+        title: formData.get('homeTitle'),
+        description: formData.get('homeDescription'),
+        assurance: formData.get('homeAssurance'),
+        origin: formData.get('homeOrigin'),
+      },
+      about: {
+        ...(state.adminContent?.about || {}),
+        eyebrow: formData.get('aboutEyebrow'),
+        title: formData.get('aboutTitle'),
+        paragraphs: String(formData.get('aboutParagraphs') || '').split(/\r?\n/).map((item) => item.trim()).filter(Boolean),
+      },
+      contact: {
+        ...(state.adminContent?.contact || {}),
+        title: formData.get('contactTitle'),
+        email: formData.get('contactEmail'),
+        phone: formData.get('contactPhone'),
+        address: formData.get('contactAddress'),
+      },
+      customBlocks,
+    }
+    const submitButton = form.querySelector('button[type="submit"]')
+    submitButton.disabled = true
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/admin/content`, {
+        method: 'PUT',
+        headers: { Authorization: `Bearer ${state.admin.token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content }),
+      })
+      const result = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(result.error || 'Website content could not be saved.')
+      state.adminContent = result.content
+      state.siteContent = result.content
+      await loadCatalogImages()
+      render()
+      showToast('Website content saved')
+    } catch (error) {
+      showToast(error.message || 'Website content could not be saved.', 'error')
+    } finally {
+      submitButton.disabled = false
     }
     return
   }
