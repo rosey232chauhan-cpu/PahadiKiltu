@@ -108,6 +108,23 @@ const whatsappLink = (message) => {
   const number = state.siteContent?.whatsappNumber || whatsappNumber
   return `https://wa.me/${number}?text=${encodeURIComponent(message)}`
 }
+let razorpayScriptPromise
+function loadRazorpayCheckout() {
+  if (window.Razorpay) return Promise.resolve()
+  if (!razorpayScriptPromise) {
+    razorpayScriptPromise = new Promise((resolve, reject) => {
+      const script = document.createElement('script')
+      script.src = 'https://checkout.razorpay.com/v1/checkout.js'
+      script.onload = () => window.Razorpay ? resolve() : reject(new Error('UPI checkout could not be loaded.'))
+      script.onerror = () => reject(new Error('UPI checkout could not be loaded.'))
+      document.head.append(script)
+    }).catch((error) => {
+      razorpayScriptPromise = null
+      throw error
+    })
+  }
+  return razorpayScriptPromise
+}
 
 function updateCatalogImages(categories, images = {}, photoStories = []) {
   state.storefrontImages = images
@@ -173,7 +190,7 @@ function productCard(item) {
   const stock = Number(item.availableQuantity) || 0
   const unavailable = item.isAvailable === false || stock === 0
   const quantityOptions = [1, 2, 5].filter((quantity) => quantity <= stock)
-  return `<article class="catalog-product-card" data-product-card data-name="${escapeHtml(item.name.toLowerCase())}" data-category="${item.categorySlug}" data-price="${parsePrice(item.price)}"><div class="catalog-product-image"><img src="${escapeHtml(item.image)}" alt="${escapeHtml(item.name)}" loading="lazy"><span class="availability-badge">${unavailable ? 'Out of stock' : `${stock} kg available`}</span></div><div class="catalog-product-content"><p class="catalog-product-category">${escapeHtml(item.categoryName)}</p><h3>${escapeHtml(item.name)}</h3><p class="catalog-product-description">${escapeHtml(item.info)}</p><p class="catalog-product-price">${escapeHtml(item.price)}</p><label class="quantity-picker">Quantity<select aria-label="Quantity of ${escapeHtml(item.name)} in kilograms" data-product-quantity ${unavailable ? 'disabled' : ''}>${quantityOptions.map((quantity) => `<option value="${quantity}">${quantity} kg</option>`).join('')}</select></label><button class="btn primary catalog-add-button" type="button" data-add="${escapeHtml(item.sku)}" ${unavailable ? 'disabled' : ''}>${unavailable ? 'Unavailable' : 'Add to Cart'}</button></div></article>`
+  return `<article class="catalog-product-card" data-product-card data-name="${escapeHtml(item.name.toLowerCase())}" data-category="${item.categorySlug}" data-price="${parsePrice(item.price)}"><div class="catalog-product-image"><img src="${escapeHtml(item.image)}" alt="${escapeHtml(item.name)}" loading="lazy"><span class="availability-badge">${unavailable ? 'Out of stock' : `${stock} kg available`}</span></div><div class="catalog-product-content"><p class="catalog-product-category">${escapeHtml(item.categoryName)}</p><h3>${escapeHtml(item.name)}</h3><p class="catalog-product-description">${escapeHtml(item.info)}</p><p class="catalog-product-price">${escapeHtml(item.price)}</p><label class="quantity-picker">Quantity<select aria-label="Quantity of ${escapeHtml(item.name)} in kilograms" data-product-quantity ${unavailable ? 'disabled' : ''}>${quantityOptions.map((quantity) => `<option value="${quantity}">${quantity} kg</option>`).join('')}</select></label><button class="btn primary catalog-add-button" type="button" data-add="${escapeHtml(item.sku)}" ${unavailable ? 'disabled' : ''}>${unavailable ? 'Unavailable' : 'Add to Cart'}</button><button class="btn secondary catalog-buy-button" type="button" data-buy="${escapeHtml(item.sku)}" ${unavailable ? 'disabled' : ''}>Buy Now</button></div></article>`
 }
 
 function showToast(message, type = 'success') {
@@ -189,6 +206,35 @@ function showToast(message, type = 'success') {
     toast.classList.remove('toast-visible')
     window.setTimeout(() => toast.remove(), 220)
   }, 2200)
+}
+
+function updateOrderHistory(order) {
+  state.orderHistory = [order, ...state.orderHistory.filter((entry) => entry.orderId !== order.orderId)].slice(0, 100)
+  saveState()
+}
+
+async function completeCheckoutOrder(order, message, followupLink) {
+  updateOrderHistory(order)
+  state.cartItems = []
+  saveState()
+  try {
+    await loadCatalogImages()
+  } catch (error) {
+    console.error('Order completed, but the product catalog could not be refreshed:', error)
+  }
+  const success = document.querySelector('#order-success')
+  if (!success) return
+  success.textContent = message
+  if (followupLink) {
+    const linkElement = document.createElement('a')
+    linkElement.href = followupLink
+    linkElement.target = '_blank'
+    linkElement.rel = 'noopener noreferrer'
+    linkElement.textContent = 'Message the store on WhatsApp'
+    success.append(' ', linkElement)
+  }
+  success.hidden = false
+  showToast('Order confirmed')
 }
 
 function markClicked(element, message) {
@@ -314,12 +360,12 @@ function cartPage() {
     const unavailable = !product || product.isAvailable === false
     return `<article class="cart-item-card"><img src="${item.image}" alt="${item.name}" loading="lazy"><div class="cart-item-content"><h3>${item.name}</h3><p>${item.categoryName}</p><p class="item-price">${item.price}</p><p>${unavailable ? 'Currently unavailable' : `${stock} kg currently available`}</p><div class="qty-controls"><button type="button" aria-label="Remove one kilogram of ${escapeHtml(item.name)}" data-decrease="${item.id}">−</button><span>${item.quantity} kg</span><button type="button" aria-label="Add one kilogram of ${escapeHtml(item.name)}" data-increase="${item.id}" ${unavailable || item.quantity >= stock ? 'disabled' : ''}>+</button></div></div><button type="button" class="remove-btn" data-remove="${item.id}">Remove</button></article>`
   }).join('')}</div><div class="bill-breakdown"><p><span>Subtotal</span><span>₹${subtotal.toFixed(2)}</span></p><p><span>Delivery charge</span><span>₹${shipping.toFixed(2)}</span></p><p><span>GST (5%)</span><span>₹${gst.toFixed(2)}</span></p><p class="cart-total"><span>Total</span><span>₹${total.toFixed(2)}</span></p><p class="delivery-estimate">Delivery timing and service area are confirmed for your address.</p></div>` : '<p>Your cart is empty. Add products to place an order.</p>'
-  const history = state.orderHistory.length ? `<div class="order-history-list">${state.orderHistory.map((order) => `<article class="order-history-card"><h3>${order.orderId}</h3><p>${order.createdAt}</p><p>Customer: ${escapeHtml(order.customerName)}</p><p>Items: ${order.items?.reduce((count, item) => count + item.quantity, 0) ?? order.itemCount}</p><p>Payment: ${order.paymentMethod.toUpperCase()}</p><p class="item-price">Total: ₹${order.total}</p></article>`).join('')}</div>` : '<p>No previous orders yet.</p>'
+  const history = state.orderHistory.length ? `<div class="order-history-list">${state.orderHistory.map((order) => `<article class="order-history-card"><h3>${order.orderId}</h3><p>${order.createdAt}</p><p>Customer: ${escapeHtml(order.customerName)}</p><p>Items: ${order.items?.reduce((count, item) => count + item.quantity, 0) ?? order.itemCount}</p><p>Payment: ${order.paymentMethod.toUpperCase()} — ${escapeHtml(order.status)}</p><p class="item-price">Total: ₹${order.total}</p></article>`).join('')}</div>` : '<p>No previous orders yet.</p>'
   const exceedsStock = state.cartItems.some((item) => {
     const product = allProducts.find((entry) => entry.sku === item.sku)
     return product?.isAvailable === false || item.quantity > (Number(product?.availableQuantity) || 0)
   })
-  return `<div class="products-layout"><section class="page-card section-block"><h1>Your Cart</h1>${items}</section><section class="page-card section-block"><h2>Order on WhatsApp</h2><p class="checkout-delivery-note">Delivery: ₹49 per order, plus 5% GST. Order stock is reserved when you continue. Delivery timing and payment details are confirmed with us on WhatsApp.</p><form class="contact-form" id="order-form"><label for="order-name">Full Name</label><input id="order-name" name="name" autocomplete="name" required><label for="order-phone">Phone Number</label><input id="order-phone" name="phone" type="tel" autocomplete="tel" required><label for="order-address">Delivery Address</label><textarea id="order-address" name="address" rows="4" autocomplete="street-address" required></textarea><button type="submit" ${state.cartItems.length && !exceedsStock ? '' : 'disabled'}>Continue to WhatsApp</button></form>${exceedsStock ? '<p role="alert">Some products are unavailable or your cart quantity exceeds current stock. Update or remove products before ordering.</p>' : ''}<p class="form-success" id="order-success" hidden></p></section><section class="page-card section-block"><h2>Order History</h2>${history}</section></div>`
+  return `<div class="products-layout"><section class="page-card section-block"><h1>Your Cart</h1>${items}</section><section class="page-card section-block"><h2>Checkout</h2><p class="checkout-delivery-note">Delivery: ₹49 per order, plus 5% GST. Choose Cash on Delivery or pay securely with UPI. UPI is provided by Razorpay; the store must configure Razorpay keys to enable it.</p><form class="contact-form" id="order-form"><label for="order-name">Full Name</label><input id="order-name" name="name" autocomplete="name" required><label for="order-phone">Phone Number</label><input id="order-phone" name="phone" type="tel" autocomplete="tel" required><label for="order-address">Delivery Address</label><textarea id="order-address" name="address" rows="4" autocomplete="street-address" required></textarea><fieldset class="payment-method-options"><legend>Payment method</legend><label><input name="paymentMethod" type="radio" value="cod" checked> Cash on Delivery</label><label><input name="paymentMethod" type="radio" value="upi"> UPI</label></fieldset><button type="submit" ${state.cartItems.length && !exceedsStock ? '' : 'disabled'}>Buy Now — COD</button></form>${exceedsStock ? '<p role="alert">Some products are unavailable or your cart quantity exceeds current stock. Update or remove products before ordering.</p>' : ''}<p class="form-success" id="order-success" hidden></p></section><section class="page-card section-block"><h2>Order History</h2>${history}</section></div>`
 }
 
 function contactPage() {
@@ -667,6 +713,10 @@ document.addEventListener('change', (event) => {
   if (event.target.matches('#product-category-filter')) applyCatalogFilters()
   if (event.target.matches('#admin-product-category')) applyAdminProductFilters()
   if (event.target.matches('#admin-image-type')) applyAdminImageFilters()
+  if (event.target.matches('#order-form [name="paymentMethod"]')) {
+    const button = document.querySelector('#order-form button[type="submit"]')
+    if (button) button.textContent = event.target.value === 'upi' ? 'Buy Now — UPI' : 'Buy Now — COD'
+  }
 })
 
 function applyAdminProductFilters() {
@@ -990,61 +1040,123 @@ document.addEventListener('submit', async (event) => {
     if (!state.cartItems.length) return
     const form = event.target
     const formData = Object.fromEntries(new FormData(form))
+    const paymentMethod = formData.paymentMethod
     const submitButton = form.querySelector('button[type="submit"]')
-    const whatsappWindow = window.open('about:blank', '_blank')
-    if (whatsappWindow) whatsappWindow.opener = null
     submitButton.disabled = true
+    let checkoutActive = false
+    let paymentVerificationStarted = false
+    let reservationReleased = false
+    let pendingOrder
+    let checkoutDetails
+
+    const releasePaymentReservation = async () => {
+      if (!pendingOrder || paymentVerificationStarted || reservationReleased) return
+      reservationReleased = true
+      try {
+        const response = await fetch(`${API_BASE_URL}/api/payments/cancel`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            orderId: pendingOrder.orderId,
+            razorpayOrderId: checkoutDetails.orderId,
+            cancellationToken: checkoutDetails.cancellationToken,
+          }),
+        })
+        const result = await response.json().catch(() => ({}))
+        if (!response.ok) throw new Error(result.error || 'The payment reservation could not be released.')
+        updateOrderHistory(result.order)
+        try {
+          await loadCatalogImages()
+        } catch (error) {
+          console.error('Cancelled payment stock could not be refreshed:', error)
+        }
+        showToast('Payment cancelled. Stock is available again.', 'error')
+      } catch (error) {
+        reservationReleased = false
+        showToast(error.message || 'The payment reservation could not be released.', 'error')
+      } finally {
+        checkoutActive = false
+        if (submitButton.isConnected) submitButton.disabled = false
+      }
+    }
+
     try {
+      if (paymentMethod === 'upi') await loadRazorpayCheckout()
       const response = await fetch(`${API_BASE_URL}/api/orders`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          customer: formData,
+          customer: {
+            name: formData.name,
+            phone: formData.phone,
+            address: formData.address,
+          },
           items: state.cartItems.map((item) => ({ sku: item.sku, quantity: item.quantity })),
-          paymentMethod: 'cod',
+          paymentMethod,
         }),
       })
       const result = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(result.error || 'Order could not be placed.')
 
       const order = result.order
-      const message = [
-        `Hello PahadiKiltu, I placed order ${order.orderId}. Please confirm delivery details and payment.`,
-        `Name: ${order.customerName}`,
-        `Phone: ${order.phone}`,
-        `Delivery address: ${order.address}`,
-        'Items:',
-        ...order.items.map((item) => `- ${item.name} x ${item.quantity} kg — ₹${item.lineTotal.toFixed(2)}`),
-        `Subtotal: ₹${order.subtotal.toFixed(2)}`,
-        `Delivery: ₹${order.shippingCharge.toFixed(2)}`,
-        `GST (5%): ₹${order.gstAmount.toFixed(2)}`,
-        `Total: ₹${order.total.toFixed(2)}`,
-      ].join('\n')
-      const orderLink = whatsappLink(message)
-      if (whatsappWindow) whatsappWindow.location.href = orderLink
-      state.orderHistory = [order, ...state.orderHistory].slice(0, 100)
-      state.cartItems = []
-      saveState()
-      try {
-        await loadCatalogImages()
-      } catch (error) {
-        console.error('Order placed, but the product catalog could not be refreshed:', error)
+      if (paymentMethod === 'cod') {
+        const orderLink = whatsappLink(`Hello PahadiKiltu, I placed COD order ${order.orderId}. Please confirm the delivery details.`)
+        await completeCheckoutOrder(order, `Order ${order.orderId} is confirmed with Cash on Delivery.`, orderLink)
+        return
       }
 
-      const success = document.querySelector('#order-success')
-      success.textContent = `Order ${order.orderId} has been placed and stock reserved. Send the WhatsApp message to confirm delivery and payment details.`
-      const fallbackLink = document.createElement('a')
-      fallbackLink.href = orderLink
-      fallbackLink.target = '_blank'
-      fallbackLink.rel = 'noopener noreferrer'
-      fallbackLink.textContent = 'Open WhatsApp message'
-      success.append(' ', fallbackLink)
-      success.hidden = false
+      pendingOrder = order
+      checkoutDetails = result.checkout
+      updateOrderHistory(order)
+      const checkout = new window.Razorpay({
+        key: checkoutDetails.keyId,
+        amount: checkoutDetails.amount,
+        currency: checkoutDetails.currency,
+        name: state.siteContent?.brandName || 'PahadiKiltu',
+        description: `Order ${order.orderId}`,
+        order_id: checkoutDetails.orderId,
+        method: { upi: true, card: false, netbanking: false, wallet: false },
+        prefill: { name: order.customerName, contact: order.phone },
+        theme: { color: '#124b34' },
+        handler: async (payment) => {
+          paymentVerificationStarted = true
+          try {
+            const verifyResponse = await fetch(`${API_BASE_URL}/api/payments/verify`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                orderId: order.orderId,
+                razorpayOrderId: payment.razorpay_order_id,
+                razorpayPaymentId: payment.razorpay_payment_id,
+                razorpaySignature: payment.razorpay_signature,
+              }),
+            })
+            const verifyResult = await verifyResponse.json().catch(() => ({}))
+            if (!verifyResponse.ok) throw new Error(verifyResult.error || 'UPI payment could not be verified.')
+            await completeCheckoutOrder(verifyResult.order, `UPI payment received. Order ${order.orderId} is confirmed.`)
+          } catch (error) {
+            showToast(`${error.message || 'UPI payment could not be verified.'} Contact the store with order ${order.orderId}.`, 'error')
+          } finally {
+            checkoutActive = false
+            if (submitButton.isConnected) submitButton.disabled = false
+          }
+        },
+        modal: {
+          ondismiss: () => {
+            if (!paymentVerificationStarted) void releasePaymentReservation()
+          },
+        },
+      })
+      checkout.on('payment.failed', () => {
+        if (!paymentVerificationStarted) void releasePaymentReservation()
+      })
+      checkoutActive = true
+      checkout.open()
     } catch (error) {
-      whatsappWindow?.close()
+      if (pendingOrder && !paymentVerificationStarted) await releasePaymentReservation()
       showToast(error.message || 'Order could not be placed.', 'error')
     } finally {
-      if (submitButton.isConnected) submitButton.disabled = false
+      if (!checkoutActive && submitButton.isConnected) submitButton.disabled = false
     }
   }
 })

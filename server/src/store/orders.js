@@ -7,6 +7,13 @@ const dataDir = process.env.DATA_DIR || path.join(tmpdir(), 'pahaditokri-data')
 const ordersFile = path.join(dataDir, 'orders.json')
 const contactsFile = path.join(dataDir, 'contacts.json')
 const useNetlifyBlobs = process.env.NETLIFY === 'true'
+let orderWriteQueue = Promise.resolve()
+
+function withOrderWriteLock(action) {
+  const result = orderWriteQueue.then(action)
+  orderWriteQueue = result.then(() => undefined, () => undefined)
+  return result
+}
 
 function ensureDataDir() {
   if (!fs.existsSync(dataDir)) {
@@ -41,21 +48,36 @@ async function writeJson(file, data, storeName, key) {
 }
 
 export async function saveOrder(order) {
-  const orders = await readJson(ordersFile, [], 'pahaditokri-orders', 'orders')
-  orders.unshift(order)
-  await writeJson(ordersFile, orders.slice(0, 500), 'pahaditokri-orders', 'orders')
-  return order
+  return withOrderWriteLock(async () => {
+    const orders = await readJson(ordersFile, [], 'pahaditokri-orders', 'orders')
+    orders.unshift(order)
+    await writeJson(ordersFile, orders.slice(0, 500), 'pahaditokri-orders', 'orders')
+    return order
+  })
 }
 
 export async function updateOrder(orderId, patch) {
-  const orders = await readJson(ordersFile, [], 'pahaditokri-orders', 'orders')
-  const index = orders.findIndex((entry) => entry.orderId === orderId)
-  if (index === -1) {
-    return null
-  }
-  orders[index] = { ...orders[index], ...patch, updatedAt: new Date().toISOString() }
-  await writeJson(ordersFile, orders, 'pahaditokri-orders', 'orders')
-  return orders[index]
+  return withOrderWriteLock(async () => {
+    const orders = await readJson(ordersFile, [], 'pahaditokri-orders', 'orders')
+    const index = orders.findIndex((entry) => entry.orderId === orderId)
+    if (index === -1) {
+      return null
+    }
+    orders[index] = { ...orders[index], ...patch, updatedAt: new Date().toISOString() }
+    await writeJson(ordersFile, orders, 'pahaditokri-orders', 'orders')
+    return orders[index]
+  })
+}
+
+export async function transitionOrder(orderId, expectedStatus, patch) {
+  return withOrderWriteLock(async () => {
+    const orders = await readJson(ordersFile, [], 'pahaditokri-orders', 'orders')
+    const index = orders.findIndex((entry) => entry.orderId === orderId && entry.status === expectedStatus)
+    if (index === -1) return null
+    orders[index] = { ...orders[index], ...patch, updatedAt: new Date().toISOString() }
+    await writeJson(ordersFile, orders, 'pahaditokri-orders', 'orders')
+    return orders[index]
+  })
 }
 
 export async function getOrderById(orderId) {

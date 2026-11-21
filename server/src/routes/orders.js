@@ -1,3 +1,4 @@
+import crypto from 'node:crypto'
 import { Router } from 'express'
 import { v4 as uuidv4 } from 'uuid'
 import { calculateCartTotals } from '../data/products.js'
@@ -39,6 +40,10 @@ router.post('/', async (req, res) => {
     gstAmount: totals.gstAmount,
     total: totals.total,
     createdAt: new Date().toISOString(),
+  }
+  const cancellationToken = paymentMethod === 'cod' ? null : crypto.randomBytes(32).toString('hex')
+  if (cancellationToken) {
+    order.cancellationTokenHash = crypto.createHash('sha256').update(cancellationToken).digest('hex')
   }
 
   if (paymentMethod !== 'cod') {
@@ -82,12 +87,13 @@ router.post('/', async (req, res) => {
     return res.status(201).json({ order })
   }
   res.status(201).json({
-    order,
+    order: { ...order, cancellationTokenHash: undefined },
     checkout: {
       keyId: getRazorpayKeyId(),
       orderId: order.razorpayOrderId,
       amount: order.razorpayAmount,
       currency: order.razorpayCurrency,
+      cancellationToken,
     },
   })
 })
