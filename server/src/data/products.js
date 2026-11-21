@@ -210,9 +210,20 @@ export function calculateCartTotals(lineItems, categories = productCategories) {
       throw new Error(`Unknown product: ${line.sku}`)
     }
     if (product.isAvailable === false) {
-      throw new Error(`${product.name} is currently unavailable.`)
+      const error = new Error(`${product.name} is currently unavailable.`)
+      error.code = 'OUT_OF_STOCK'
+      throw error
     }
-    const quantity = Math.max(1, Math.min(99, Number(line.quantity) || 1))
+    const quantity = Number(line.quantity)
+    if (!Number.isInteger(quantity) || quantity < 1 || quantity > 99) {
+      throw new Error(`Choose a valid quantity for ${product.name}.`)
+    }
+    const availableQuantity = Number(product.availableQuantity) || 0
+    if (quantity > availableQuantity) {
+      const error = new Error(`Only ${availableQuantity} kg of ${product.name} are available.`)
+      error.code = 'OUT_OF_STOCK'
+      throw error
+    }
     const lineTotal = product.priceInRupees * quantity
     subtotal += lineTotal
     resolved.push({

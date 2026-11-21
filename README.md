@@ -1,6 +1,6 @@
 # PahadiKiltu
 
-HTML, CSS, and JavaScript storefront for Himalayan produce with a Node.js API. Storefront checkout prepares a WhatsApp order inquiry with the cart and delivery details; payment is arranged directly with the store.
+HTML, CSS, and JavaScript storefront for Himalayan produce with a Node.js API. Storefront checkout places a COD order, reserves its available stock, and opens WhatsApp to coordinate delivery and payment details with the store.
 
 ## Run locally
 
@@ -35,7 +35,7 @@ HTML, CSS, and JavaScript storefront for Himalayan produce with a Node.js API. S
 
 ## Store admin dashboard
 
-Open `/admin` on the storefront and sign in with the configured admin email and password. The dashboard can add, edit, or remove products; update product names, descriptions, prices, and availability; add or remove custom homepage photo stories; and replace or restore the site logo, background, product and category images, Home walnut image, Farm Stories images, and About page images. New products can be assigned to an existing category and given a photo after creation. Upload a JPEG, PNG, WebP, or GIF (up to 2 MB); removing a custom image restores the built-in image. Product prices and availability are also checked by the order API.
+Open `/admin` on the storefront and sign in with the configured admin email and password. The dashboard can add, edit, or remove products; update product names, descriptions, prices, availability, and available stock in whole kilograms; add or remove custom homepage photo stories; and replace or restore the site logo, background, product and category images, Home walnut image, Farm Stories images, and About page images. New products can be assigned to an existing category, given an initial stock quantity, and given a photo after creation. Products without a recorded stock quantity start at 0 kg, so enter actual stock in the dashboard before accepting orders. Upload a JPEG, PNG, WebP, or GIF (up to 2 MB); removing a custom image restores the built-in image. The storefront displays current stock, refreshes it periodically, and checks availability again when an order is submitted. Each accepted order deducts stock from the catalog.
 
 Admin credentials are provided only through server environment variables; there is no public admin registration endpoint. The only allowed admin email defaults to `rosey232chauhan@gmail.com`. On Netlify, set `ADMIN_EMAIL` to that address, choose a unique `ADMIN_PASSWORD` of at least 12 characters, and set a random `AUTH_TOKEN_SECRET` of at least 32 characters in **Site configuration > Environment variables**, then redeploy. Never share or commit the password or token secret. For local development, set these values in `server/.env`. Local image and catalog data is stored under `DATA_DIR` (default: the system temporary directory); on Netlify, it is stored in Netlify Blobs.
 
@@ -66,13 +66,13 @@ If you use the API's Razorpay endpoints, test with Razorpay test keys before con
 | DELETE | `/api/admin/images/:target` | Remove a custom image and restore the built-in image (admin token required) |
 | GET | `/api/admin/products` | List editable products (admin token required) |
 | POST | `/api/admin/products` | Add a product to an existing category (admin token required) |
-| PUT | `/api/admin/products/:sku` | Update a product's name, description, price, or availability (admin token required) |
+| PUT | `/api/admin/products/:sku` | Update a product's name, description, price, available stock, or availability (admin token required) |
 | DELETE | `/api/admin/products/:sku` | Remove a product and its custom image (admin token required) |
 | GET | `/api/admin/photo-stories` | List custom homepage photo stories (admin token required) |
 | POST | `/api/admin/photo-stories?title=...&label=...&description=...` | Add a photo story with an image body (admin token required) |
 | DELETE | `/api/admin/photo-stories/:id` | Remove a custom photo story and its image (admin token required) |
 | GET | `/api/media/:imageId` | Serve an uploaded image |
-| POST | `/api/orders` | Create COD or online (Razorpay) order |
+| POST | `/api/orders` | Create COD or online (Razorpay) order and reserve product stock |
 | POST | `/api/payments/verify` | Verify Razorpay payment signature |
 | GET | `/api/orders/history?phone=` | Orders for a phone number |
 | POST | `/api/contact` | Contact form submissions |

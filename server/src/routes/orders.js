@@ -1,7 +1,7 @@
 import { Router } from 'express'
 import { v4 as uuidv4 } from 'uuid'
 import { calculateCartTotals } from '../data/products.js'
-import { getProductCatalog } from '../store/catalog.js'
+import { adjustCatalogStock, getProductCatalog } from '../store/catalog.js'
 import { createRazorpayOrder, getRazorpayKeyId, isOnlinePaymentsConfigured } from '../services/razorpay.js'
 import { getOrderById, listOrdersByPhone, saveOrder } from '../store/orders.js'
 
@@ -23,7 +23,7 @@ router.post('/', async (req, res) => {
   try {
     totals = calculateCartTotals(items, await getProductCatalog())
   } catch (error) {
-    return res.status(400).json({ error: error.message })
+    return res.status(error.code === 'OUT_OF_STOCK' ? 409 : 400).json({ error: error.message })
   }
 
   const order = {
@@ -59,9 +59,23 @@ router.post('/', async (req, res) => {
     }
   }
 
+  let stockReserved = false
   try {
+    await adjustCatalogStock(totals.items, -1)
+    stockReserved = true
     await saveOrder(order)
-  } catch {
+  } catch (error) {
+    if (stockReserved) {
+      try {
+        await adjustCatalogStock(totals.items, 1)
+      } catch (restoreError) {
+        console.error('Unable to restore product stock after order save failed:', restoreError)
+      }
+    }
+    if (error.code === 'OUT_OF_STOCK') {
+      return res.status(409).json({ error: error.message })
+    }
+    console.error('Unable to reserve product stock or save order:', error)
     return res.status(500).json({ error: 'Order could not be saved.' })
   }
   if (paymentMethod === 'cod') {

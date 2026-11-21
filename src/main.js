@@ -154,7 +154,8 @@ function updateCatalogImages(categories, images = {}, photoStories = []) {
   saveState()
 }
 
-async function loadCatalogImages() {
+async function loadCatalogImages({ renderWhenUnchanged = true } = {}) {
+  const previousStock = new Map(allProducts.map((item) => [item.sku, item.availableQuantity]))
   const [catalogResponse, contentResponse] = await Promise.all([
     fetch(`${API_BASE_URL}/api/products`),
     fetch(`${API_BASE_URL}/api/content`),
@@ -164,12 +165,15 @@ async function loadCatalogImages() {
   const contentResult = await contentResponse.json().catch(() => ({}))
   if (contentResponse.ok && contentResult.content) state.siteContent = contentResult.content
   if (Array.isArray(catalog.categories)) updateCatalogImages(catalog.categories, catalog.storefrontImages, catalog.photoStories)
-  if (window.location.pathname !== '/admin') render()
+  const stockChanged = allProducts.some((item) => previousStock.get(item.sku) !== item.availableQuantity)
+  if (window.location.pathname !== '/admin' && (renderWhenUnchanged || stockChanged)) render()
 }
 
 function productCard(item) {
-  const unavailable = item.isAvailable === false
-  return `<article class="catalog-product-card" data-product-card data-name="${escapeHtml(item.name.toLowerCase())}" data-category="${item.categorySlug}" data-price="${parsePrice(item.price)}"><div class="catalog-product-image"><img src="${escapeHtml(item.image)}" alt="${escapeHtml(item.name)}" loading="lazy"><span class="availability-badge">${unavailable ? 'Currently unavailable' : 'Check availability'}</span></div><div class="catalog-product-content"><p class="catalog-product-category">${escapeHtml(item.categoryName)}</p><h3>${escapeHtml(item.name)}</h3><p class="catalog-product-description">${escapeHtml(item.info)}</p><p class="catalog-product-price">${escapeHtml(item.price)}</p><label class="quantity-picker">Quantity<select aria-label="Quantity of ${escapeHtml(item.name)} in kilograms" data-product-quantity><option value="1">1 kg</option><option value="2">2 kg</option><option value="5">5 kg</option></select></label><button class="btn primary catalog-add-button" type="button" data-add="${escapeHtml(item.sku)}" ${unavailable ? 'disabled' : ''}>${unavailable ? 'Unavailable' : 'Add to Cart'}</button></div></article>`
+  const stock = Number(item.availableQuantity) || 0
+  const unavailable = item.isAvailable === false || stock === 0
+  const quantityOptions = [1, 2, 5].filter((quantity) => quantity <= stock)
+  return `<article class="catalog-product-card" data-product-card data-name="${escapeHtml(item.name.toLowerCase())}" data-category="${item.categorySlug}" data-price="${parsePrice(item.price)}"><div class="catalog-product-image"><img src="${escapeHtml(item.image)}" alt="${escapeHtml(item.name)}" loading="lazy"><span class="availability-badge">${unavailable ? 'Out of stock' : `${stock} kg available`}</span></div><div class="catalog-product-content"><p class="catalog-product-category">${escapeHtml(item.categoryName)}</p><h3>${escapeHtml(item.name)}</h3><p class="catalog-product-description">${escapeHtml(item.info)}</p><p class="catalog-product-price">${escapeHtml(item.price)}</p><label class="quantity-picker">Quantity<select aria-label="Quantity of ${escapeHtml(item.name)} in kilograms" data-product-quantity ${unavailable ? 'disabled' : ''}>${quantityOptions.map((quantity) => `<option value="${quantity}">${quantity} kg</option>`).join('')}</select></label><button class="btn primary catalog-add-button" type="button" data-add="${escapeHtml(item.sku)}" ${unavailable ? 'disabled' : ''}>${unavailable ? 'Unavailable' : 'Add to Cart'}</button></div></article>`
 }
 
 function showToast(message, type = 'success') {
@@ -292,7 +296,7 @@ function aboutPage() {
 }
 
 function productsPage() {
-  return `<div class="products-layout"><section class="page-card section-block products-hero"><p class="eyebrow">From our current catalogue</p><h1>Shop Products</h1><p>Search the catalogue, filter by category or price, and choose your quantity in kilograms. Stock is not tracked live, so please confirm availability with us before ordering.</p></section><section class="catalogue-controls" aria-label="Search and filter products"><label>Search products<input type="search" id="product-search" placeholder="Try apples or grains" autocomplete="off"></label><label>Category<select id="product-category-filter"><option value="">All categories</option>${productCategories.map((category) => `<option value="${category.slug}">${category.name}</option>`).join('')}</select></label><label>Minimum price<input type="number" id="product-min-price" min="0" inputmode="numeric" placeholder="₹0"></label><label>Maximum price<input type="number" id="product-max-price" min="0" inputmode="numeric" placeholder="No limit"></label></section><p class="catalog-results" id="catalog-results" aria-live="polite">${allProducts.length} products</p><section class="catalog-product-grid" id="catalog-product-grid">${allProducts.map(productCard).join('')}</section><p class="catalog-empty" id="catalog-empty" hidden>No products match those filters. Try changing your search.</p></div>`
+  return `<div class="products-layout"><section class="page-card section-block products-hero"><p class="eyebrow">From our current catalogue</p><h1>Shop Products</h1><p>Search the catalogue, filter by category or price, and choose your quantity in kilograms. Available stock updates automatically as orders are placed.</p></section><section class="catalogue-controls" aria-label="Search and filter products"><label>Search products<input type="search" id="product-search" placeholder="Try apples or grains" autocomplete="off"></label><label>Category<select id="product-category-filter"><option value="">All categories</option>${productCategories.map((category) => `<option value="${category.slug}">${category.name}</option>`).join('')}</select></label><label>Minimum price<input type="number" id="product-min-price" min="0" inputmode="numeric" placeholder="₹0"></label><label>Maximum price<input type="number" id="product-max-price" min="0" inputmode="numeric" placeholder="No limit"></label></section><p class="catalog-results" id="catalog-results" aria-live="polite">${allProducts.length} products</p><section class="catalog-product-grid" id="catalog-product-grid">${allProducts.map(productCard).join('')}</section><p class="catalog-empty" id="catalog-empty" hidden>No products match those filters. Try changing your search.</p></div>`
 }
 
 function categoryPage(slug) {
@@ -304,9 +308,18 @@ function categoryPage(slug) {
 
 function cartPage() {
   const { subtotal, shipping, gst, total } = cartTotals()
-  const items = state.cartItems.length ? `<div class="cart-item-list">${state.cartItems.map((item) => `<article class="cart-item-card"><img src="${item.image}" alt="${item.name}" loading="lazy"><div class="cart-item-content"><h3>${item.name}</h3><p>${item.categoryName}</p><p class="item-price">${item.price}</p><div class="qty-controls"><button type="button" aria-label="Remove one kilogram of ${escapeHtml(item.name)}" data-decrease="${item.id}">−</button><span>${item.quantity} kg</span><button type="button" aria-label="Add one kilogram of ${escapeHtml(item.name)}" data-increase="${item.id}">+</button></div></div><button type="button" class="remove-btn" data-remove="${item.id}">Remove</button></article>`).join('')}</div><div class="bill-breakdown"><p><span>Subtotal</span><span>₹${subtotal.toFixed(2)}</span></p><p><span>Delivery charge</span><span>₹${shipping.toFixed(2)}</span></p><p><span>GST (5%)</span><span>₹${gst.toFixed(2)}</span></p><p class="cart-total"><span>Total</span><span>₹${total.toFixed(2)}</span></p><p class="delivery-estimate">Delivery timing and service area are confirmed for your address.</p></div>` : '<p>Your cart is empty. Add products to place an order.</p>'
-  const history = state.orderHistory.length ? `<div class="order-history-list">${state.orderHistory.map((order) => `<article class="order-history-card"><h3>${order.orderId}</h3><p>${order.createdAt}</p><p>Customer: ${escapeHtml(order.customerName)}</p><p>Items: ${order.itemCount}</p><p>Payment: ${order.paymentMethod.toUpperCase()}</p><p class="item-price">Total: ₹${order.total}</p></article>`).join('')}</div>` : '<p>No previous orders yet.</p>'
-  return `<div class="products-layout"><section class="page-card section-block"><h1>Your Cart</h1>${items}</section><section class="page-card section-block"><h2>Order on WhatsApp</h2><p class="checkout-delivery-note">Delivery: ₹49 per order, plus 5% GST. We’ll confirm availability, service area, delivery timing, and payment details with you on WhatsApp. No payment is collected on this page.</p><form class="contact-form" id="order-form"><label for="order-name">Full Name</label><input id="order-name" name="name" autocomplete="name" required><label for="order-phone">Phone Number</label><input id="order-phone" name="phone" type="tel" autocomplete="tel" required><label for="order-address">Delivery Address</label><textarea id="order-address" name="address" rows="4" autocomplete="street-address" required></textarea><button type="submit" ${state.cartItems.length ? '' : 'disabled'}>Continue to WhatsApp</button></form><p class="form-success" id="order-success" hidden></p></section><section class="page-card section-block"><h2>Order History</h2>${history}</section></div>`
+  const items = state.cartItems.length ? `<div class="cart-item-list">${state.cartItems.map((item) => {
+    const product = allProducts.find((entry) => entry.sku === item.sku)
+    const stock = Number(product?.availableQuantity) || 0
+    const unavailable = !product || product.isAvailable === false
+    return `<article class="cart-item-card"><img src="${item.image}" alt="${item.name}" loading="lazy"><div class="cart-item-content"><h3>${item.name}</h3><p>${item.categoryName}</p><p class="item-price">${item.price}</p><p>${unavailable ? 'Currently unavailable' : `${stock} kg currently available`}</p><div class="qty-controls"><button type="button" aria-label="Remove one kilogram of ${escapeHtml(item.name)}" data-decrease="${item.id}">−</button><span>${item.quantity} kg</span><button type="button" aria-label="Add one kilogram of ${escapeHtml(item.name)}" data-increase="${item.id}" ${unavailable || item.quantity >= stock ? 'disabled' : ''}>+</button></div></div><button type="button" class="remove-btn" data-remove="${item.id}">Remove</button></article>`
+  }).join('')}</div><div class="bill-breakdown"><p><span>Subtotal</span><span>₹${subtotal.toFixed(2)}</span></p><p><span>Delivery charge</span><span>₹${shipping.toFixed(2)}</span></p><p><span>GST (5%)</span><span>₹${gst.toFixed(2)}</span></p><p class="cart-total"><span>Total</span><span>₹${total.toFixed(2)}</span></p><p class="delivery-estimate">Delivery timing and service area are confirmed for your address.</p></div>` : '<p>Your cart is empty. Add products to place an order.</p>'
+  const history = state.orderHistory.length ? `<div class="order-history-list">${state.orderHistory.map((order) => `<article class="order-history-card"><h3>${order.orderId}</h3><p>${order.createdAt}</p><p>Customer: ${escapeHtml(order.customerName)}</p><p>Items: ${order.items?.reduce((count, item) => count + item.quantity, 0) ?? order.itemCount}</p><p>Payment: ${order.paymentMethod.toUpperCase()}</p><p class="item-price">Total: ₹${order.total}</p></article>`).join('')}</div>` : '<p>No previous orders yet.</p>'
+  const exceedsStock = state.cartItems.some((item) => {
+    const product = allProducts.find((entry) => entry.sku === item.sku)
+    return product?.isAvailable === false || item.quantity > (Number(product?.availableQuantity) || 0)
+  })
+  return `<div class="products-layout"><section class="page-card section-block"><h1>Your Cart</h1>${items}</section><section class="page-card section-block"><h2>Order on WhatsApp</h2><p class="checkout-delivery-note">Delivery: ₹49 per order, plus 5% GST. Order stock is reserved when you continue. Delivery timing and payment details are confirmed with us on WhatsApp.</p><form class="contact-form" id="order-form"><label for="order-name">Full Name</label><input id="order-name" name="name" autocomplete="name" required><label for="order-phone">Phone Number</label><input id="order-phone" name="phone" type="tel" autocomplete="tel" required><label for="order-address">Delivery Address</label><textarea id="order-address" name="address" rows="4" autocomplete="street-address" required></textarea><button type="submit" ${state.cartItems.length && !exceedsStock ? '' : 'disabled'}>Continue to WhatsApp</button></form>${exceedsStock ? '<p role="alert">Some products are unavailable or your cart quantity exceeds current stock. Update or remove products before ordering.</p>' : ''}<p class="form-success" id="order-success" hidden></p></section><section class="page-card section-block"><h2>Order History</h2>${history}</section></div>`
 }
 
 function contactPage() {
@@ -368,6 +381,7 @@ function render() {
   const brandName = state.siteContent?.brandName || 'PahadiKiltu'
   const footerText = state.siteContent?.footerText || 'Freshness Delivered Daily.'
   root.innerHTML = `<div class="site-shell">${header()}<main class="site-main">${pageContent(path)}</main><footer class="site-footer"><p>© ${new Date().getFullYear()} ${escapeHtml(brandName)}. ${escapeHtml(footerText)}</p></footer></div><a class="floating-whatsapp" href="${whatsappLink(state.siteContent?.whatsappDefaultMessage || 'Hello PahadiKiltu, I have a question about an order.')}" target="_blank" rel="noopener noreferrer" aria-label="Contact ${escapeHtml(brandName)} on WhatsApp">WhatsApp</a><div id="toast-container" aria-live="polite"></div>`
+  if (path === '/admin') addAdminStockFields()
   const search = document.querySelector('#product-search')
   if (search) applyCatalogFilters()
   mediaObserver = new IntersectionObserver((entries) => {
@@ -400,6 +414,21 @@ function render() {
     mediaObserver.observe(card)
   })
   if (path === '/admin' && state.admin && !state.adminImagesLoaded) void loadAdminImages()
+}
+
+function addAdminStockFields() {
+  const createGrid = document.querySelector('#admin-product-create-form .admin-product-create-grid')
+  createGrid?.insertAdjacentHTML('beforeend', '<label>Available quantity (kg)<input name="availableQuantity" type="number" min="0" max="100000" step="1" value="0" required></label>')
+
+  for (const form of document.querySelectorAll('[data-admin-product-form]')) {
+    const product = state.adminProducts.find((item) => item.sku === form.dataset.sku)
+    const availability = form.querySelector('[name="isAvailable"]')?.closest('label')
+    if (!product || !availability) continue
+    const stock = Number(product.availableQuantity) || 0
+    const stockSummary = form.closest('.admin-product-card')?.querySelector('.admin-product-preview > span')
+    if (stockSummary) stockSummary.textContent = product.isAvailable && stock > 0 ? `${stock} kg in stock` : 'Out of stock'
+    availability.insertAdjacentHTML('beforebegin', `<label>Available quantity (kg)<input name="availableQuantity" type="number" min="0" max="100000" step="1" value="${stock}" required></label>`)
+  }
 }
 
 async function loadAdminImages() {
@@ -448,21 +477,27 @@ function findItem(reference) {
 
 function addToCart(reference, replace = false, quantity = 1) {
   const found = findItem(reference)
-  if (!found?.item) return
-  if (found.item.isAvailable === false) {
-    showToast('This product is currently unavailable.', 'error')
-    return
-  }
+  if (!found?.item) return false
+  const stock = Number(found.item.availableQuantity) || 0
   const selectedQuantity = Math.max(1, Math.min(99, Number(quantity) || 1))
+  const existingQuantity = replace ? 0 : (state.cartItems.find((item) => item.id === reference)?.quantity || 0)
+  if (found.item.isAvailable === false || existingQuantity + selectedQuantity > stock) {
+    const message = found.item.isAvailable === false
+      ? 'This product is currently unavailable.'
+      : stock === 0 ? 'This product is out of stock.' : `Only ${stock - existingQuantity} kg of this product are available.`
+    showToast(message, 'error')
+    return false
+  }
   const newItem = itemWithCartData(found.item, found.category.name, selectedQuantity)
   if (replace) state.cartItems = [newItem]
   else {
     const existing = state.cartItems.find((item) => item.id === newItem.id)
-    state.cartItems = existing ? state.cartItems.map((item) => item.id === newItem.id ? { ...item, quantity: Math.min(99, item.quantity + selectedQuantity) } : item) : [...state.cartItems, newItem]
+    state.cartItems = existing ? state.cartItems.map((item) => item.id === newItem.id ? { ...item, quantity: item.quantity + selectedQuantity } : item) : [...state.cartItems, newItem]
   }
   saveState()
   render()
   if (replace) navigate('/cart')
+  return true
 }
 
 function navigate(path) {
@@ -528,14 +563,26 @@ document.addEventListener('click', (event) => {
   const add = event.target.closest('[data-add]')
   if (add) {
     const quantity = add.closest('[data-product-card]')?.querySelector('[data-product-quantity]')?.value || 1
-    addToCart(add.dataset.add, false, quantity)
-    markClicked(add, 'Added to cart')
+    if (addToCart(add.dataset.add, false, quantity)) markClicked(add, 'Added to cart')
     return
   }
   const buy = event.target.closest('[data-buy]')
-  if (buy) { addToCart(buy.dataset.buy, true); markClicked(buy, 'Opening checkout'); return }
+  if (buy) { if (addToCart(buy.dataset.buy, true)) markClicked(buy, 'Opening checkout'); return }
   const increase = event.target.closest('[data-increase]')
-  if (increase) { state.cartItems = state.cartItems.map((item) => item.id === increase.dataset.increase ? { ...item, quantity: item.quantity + 1 } : item); saveState(); render(); showToast('Quantity increased'); return }
+  if (increase) {
+    const item = state.cartItems.find((entry) => entry.id === increase.dataset.increase)
+    const product = allProducts.find((entry) => entry.sku === item?.sku)
+    const stock = Number(product?.availableQuantity) || 0
+    if (!item || product?.isAvailable === false || item.quantity >= stock) {
+      showToast(product?.isAvailable === false ? 'This product is currently unavailable.' : `Only ${stock} kg of this product are available.`, 'error')
+      return
+    }
+    state.cartItems = state.cartItems.map((entry) => entry.id === increase.dataset.increase ? { ...entry, quantity: entry.quantity + 1 } : entry)
+    saveState()
+    render()
+    showToast('Quantity increased')
+    return
+  }
   const decrease = event.target.closest('[data-decrease]')
   if (decrease) { state.cartItems = state.cartItems.map((item) => item.id === decrease.dataset.decrease ? { ...item, quantity: item.quantity - 1 } : item).filter((item) => item.quantity > 0); saveState(); render(); showToast('Quantity decreased'); return }
   const remove = event.target.closest('[data-remove]')
@@ -821,6 +868,7 @@ document.addEventListener('submit', async (event) => {
           info: formData.get('info'),
           priceInRupees: Number(formData.get('priceInRupees')),
           categorySlug: formData.get('categorySlug'),
+          availableQuantity: Number(formData.get('availableQuantity')),
         }),
       })
       const result = await response.json().catch(() => ({}))
@@ -855,6 +903,7 @@ document.addEventListener('submit', async (event) => {
           info: formData.get('info'),
           priceInRupees: Number(formData.get('priceInRupees')),
           isAvailable: formData.has('isAvailable'),
+          availableQuantity: Number(formData.get('availableQuantity')),
         }),
       })
       const result = await response.json().catch(() => ({}))
@@ -941,32 +990,62 @@ document.addEventListener('submit', async (event) => {
     if (!state.cartItems.length) return
     const form = event.target
     const formData = Object.fromEntries(new FormData(form))
-    const { subtotal, shipping, gst, total } = cartTotals()
-    const message = [
-      'Hello PahadiKiltu, I would like to place this order. Please confirm availability, delivery, and payment options.',
-      `Name: ${formData.name}`,
-      `Phone: ${formData.phone}`,
-      `Delivery address: ${formData.address}`,
-      'Items:',
-      ...state.cartItems.map((item) => `- ${item.name} x ${item.quantity} kg — ₹${(item.priceNumber * item.quantity).toFixed(2)}`),
-      `Subtotal: ₹${subtotal.toFixed(2)}`,
-      `Delivery: ₹${shipping.toFixed(2)}`,
-      `GST (5%): ₹${gst.toFixed(2)}`,
-      `Estimated total: ₹${total.toFixed(2)} (please confirm)`,
-      'Please share payment instructions and help with any questions.',
-    ].join('\n')
-    const orderLink = whatsappLink(message)
-    window.open(orderLink, '_blank', 'noopener,noreferrer')
+    const submitButton = form.querySelector('button[type="submit"]')
+    const whatsappWindow = window.open('about:blank', '_blank')
+    if (whatsappWindow) whatsappWindow.opener = null
+    submitButton.disabled = true
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/orders`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          customer: formData,
+          items: state.cartItems.map((item) => ({ sku: item.sku, quantity: item.quantity })),
+          paymentMethod: 'cod',
+        }),
+      })
+      const result = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(result.error || 'Order could not be placed.')
 
-    const success = document.querySelector('#order-success')
-    success.textContent = 'Your order request is ready. Send it in WhatsApp so we can confirm availability, final delivery details, and payment. Your cart has been kept.'
-    const fallbackLink = document.createElement('a')
-    fallbackLink.href = orderLink
-    fallbackLink.target = '_blank'
-    fallbackLink.rel = 'noopener noreferrer'
-    fallbackLink.textContent = 'Open WhatsApp message'
-    success.append(' ', fallbackLink)
-    success.hidden = false
+      const order = result.order
+      const message = [
+        `Hello PahadiKiltu, I placed order ${order.orderId}. Please confirm delivery details and payment.`,
+        `Name: ${order.customerName}`,
+        `Phone: ${order.phone}`,
+        `Delivery address: ${order.address}`,
+        'Items:',
+        ...order.items.map((item) => `- ${item.name} x ${item.quantity} kg — ₹${item.lineTotal.toFixed(2)}`),
+        `Subtotal: ₹${order.subtotal.toFixed(2)}`,
+        `Delivery: ₹${order.shippingCharge.toFixed(2)}`,
+        `GST (5%): ₹${order.gstAmount.toFixed(2)}`,
+        `Total: ₹${order.total.toFixed(2)}`,
+      ].join('\n')
+      const orderLink = whatsappLink(message)
+      if (whatsappWindow) whatsappWindow.location.href = orderLink
+      state.orderHistory = [order, ...state.orderHistory].slice(0, 100)
+      state.cartItems = []
+      saveState()
+      try {
+        await loadCatalogImages()
+      } catch (error) {
+        console.error('Order placed, but the product catalog could not be refreshed:', error)
+      }
+
+      const success = document.querySelector('#order-success')
+      success.textContent = `Order ${order.orderId} has been placed and stock reserved. Send the WhatsApp message to confirm delivery and payment details.`
+      const fallbackLink = document.createElement('a')
+      fallbackLink.href = orderLink
+      fallbackLink.target = '_blank'
+      fallbackLink.rel = 'noopener noreferrer'
+      fallbackLink.textContent = 'Open WhatsApp message'
+      success.append(' ', fallbackLink)
+      success.hidden = false
+    } catch (error) {
+      whatsappWindow?.close()
+      showToast(error.message || 'Order could not be placed.', 'error')
+    } finally {
+      if (submitButton.isConnected) submitButton.disabled = false
+    }
   }
 })
 
@@ -1022,5 +1101,11 @@ async function removeManagedPhotoStory(id) {
 }
 
 window.addEventListener('popstate', render)
+window.addEventListener('focus', () => loadCatalogImages({ renderWhenUnchanged: false }).catch((error) => console.error(error)))
+window.setInterval(() => {
+  if (document.visibilityState === 'visible') {
+    loadCatalogImages({ renderWhenUnchanged: false }).catch((error) => console.error(error))
+  }
+}, 30000)
 render()
 loadCatalogImages().catch((error) => console.error(error))

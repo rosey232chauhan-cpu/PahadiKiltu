@@ -256,8 +256,9 @@ router.get('/products', requireAdmin, async (_req, res) => {
 })
 
 router.post('/products', requireAdmin, async (req, res) => {
-  const { name, info, priceInRupees, categorySlug } = req.body ?? {}
+  const { name, info, priceInRupees, categorySlug, availableQuantity } = req.body ?? {}
   const price = Number(priceInRupees)
+  const stock = Number(availableQuantity)
   if (typeof name !== 'string' || !name.trim() || name.trim().length > 100) {
     return res.status(400).json({ error: 'Product name must be between 1 and 100 characters.' })
   }
@@ -266,6 +267,9 @@ router.post('/products', requireAdmin, async (req, res) => {
   }
   if (!Number.isFinite(price) || price <= 0 || price > 100000) {
     return res.status(400).json({ error: 'Price must be greater than ₹0 and no more than ₹100,000 per kg.' })
+  }
+  if (!Number.isInteger(stock) || stock < 0 || stock > 100000) {
+    return res.status(400).json({ error: 'Available quantity must be a whole number from 0 to 100,000 kg.' })
   }
   if (typeof categorySlug !== 'string' || !productCategories.some((category) => category.slug === categorySlug)) {
     return res.status(400).json({ error: 'Choose a valid product category.' })
@@ -276,6 +280,7 @@ router.post('/products', requireAdmin, async (req, res) => {
       info: info.trim(),
       priceInRupees: Math.round(price * 100) / 100,
       categorySlug,
+      availableQuantity: stock,
     })
     res.status(201).json({ product })
   } catch (error) {
@@ -308,8 +313,9 @@ router.put('/products/:sku', requireAdmin, async (req, res) => {
   const product = categories.flatMap((category) => category.items).find((item) => item.sku === req.params.sku)
   if (!product) return res.status(404).json({ error: 'Product not found.' })
 
-  const { name, info, priceInRupees, isAvailable } = req.body ?? {}
+  const { name, info, priceInRupees, isAvailable, availableQuantity } = req.body ?? {}
   const price = Number(priceInRupees)
+  const stock = Number(availableQuantity)
   if (typeof name !== 'string' || !name.trim() || name.trim().length > 100) {
     return res.status(400).json({ error: 'Product name must be between 1 and 100 characters.' })
   }
@@ -318,6 +324,9 @@ router.put('/products/:sku', requireAdmin, async (req, res) => {
   }
   if (!Number.isFinite(price) || price <= 0 || price > 100000) {
     return res.status(400).json({ error: 'Price must be greater than ₹0 and no more than ₹100,000 per kg.' })
+  }
+  if (!Number.isInteger(stock) || stock < 0 || stock > 100000) {
+    return res.status(400).json({ error: 'Available quantity must be a whole number from 0 to 100,000 kg.' })
   }
   if (typeof isAvailable !== 'boolean') {
     return res.status(400).json({ error: 'Choose whether this product is available for orders.' })
@@ -329,6 +338,7 @@ router.put('/products/:sku', requireAdmin, async (req, res) => {
       info: info.trim(),
       priceInRupees: Math.round(price * 100) / 100,
       isAvailable,
+      availableQuantity: stock,
     })
     res.json({ product: updated })
   } catch (error) {
